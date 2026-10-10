@@ -7,8 +7,10 @@ import base64
 import binascii
 import io
 import uuid
+import time
+from collections import defaultdict
 from PIL import Image, UnidentifiedImageError
-from fastapi import FastAPI, HTTPException, Depends, Header
+from fastapi import FastAPI, HTTPException, Depends, Request
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -17,9 +19,12 @@ from core import Store, cents, money
 BASE = Path(__file__).resolve().parent
 IMAGES = BASE / 'product_images'
 IMAGES.mkdir(exist_ok=True)
-TOKEN = os.getenv("PDV_TOKEN")
-if not TOKEN:
-    raise RuntimeError("Defina PDV_TOKEN no ambiente antes de iniciar o servidor.")
+PASSWORD = os.getenv("PDV_PASSWORD", "")
+if len(PASSWORD) < 10:
+    raise RuntimeError("Defina PDV_PASSWORD com pelo menos 10 caracteres antes de iniciar.")
+SESSIONS = {}
+FAILED = defaultdict(list)
+SESSION_SECONDS = 8 * 60 * 60
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -32,12 +37,48 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="PDV Lanchonete", lifespan=lifespan, docs_url=None, redoc_url=None)
 app.mount("/static", StaticFiles(directory=BASE / "web"), name="static")
 
-def auth(authorization: str | None = Header(default=None)):
-    if not authorization or not secrets.compare_digest(authorization, "Bearer " + TOKEN):
-        raise HTTPException(401, "Acesso não autorizado")
+def auth(request: Request):
+    sid = request.cookies.get("pdv_session", "")
+    expires = SESSIONS.get(sid, 0)
+    if not sid or expires < time.time():
+        raise HTTPException(401, "Faça login para continuar.")
+    if request.method not in ("GET", "HEAD", "OPTIONS"):
+        # Same-origin request header is required for state-changing operations.
+        if request.headers.get("X-PDV-Request") != "1":
+            raise HTTPException(403, "Requisição não autorizada.")
+        origin = request.headers.get("origin")
+        if origin and origin.rstrip("/") != str(request.base_url).rstrip("/"):
+            raise HTTPException(403, "Origem não autorizada.")
+    SESSIONS[sid] = time.time() + SESSION_SECONDS
 
 def store():
     return app.state.store
+
+class LoginInput(BaseModel):
+    password: str
+
+@app.post("/api/login")
+def login(data: LoginInput, request: Request, response: Response):
+    ip = request.client.host if request.client else "unknown"
+    now = time.time()
+    FAILED[ip] = [t for t in FAILED[ip] if now - t < 900]
+    if len(FAILED[ip]) >= 8:
+        raise HTTPException(429, "Muitas tentativas. Aguarde 15 minutos.")
+    if not secrets.compare_digest(data.password, PASSWORD):
+        FAILED[ip].append(now)
+        raise HTTPException(401, "Senha incorreta.")
+    FAILED.pop(ip, None)
+    sid = secrets.token_urlsafe(32)
+    SESSIONS[sid] = now + SESSION_SECONDS
+    response.set_cookie("pdv_session", sid, httponly=True, samesite="strict",
+                        secure=request.url.scheme == "https", max_age=SESSION_SECONDS, path="/")
+    return {"ok": True}
+
+@app.post("/api/logout", dependencies=[Depends(auth)])
+def logout(request: Request, response: Response):
+    SESSIONS.pop(request.cookies.get("pdv_session"), None)
+    response.delete_cookie("pdv_session", path="/")
+    return {"ok": True}
 
 class MoneyInput(BaseModel):
     amount: str
