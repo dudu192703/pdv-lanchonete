@@ -43,11 +43,23 @@ class Store:
         if "image" not in columns:
             with self.db:
                 self.db.execute("ALTER TABLE products ADD COLUMN image TEXT")
+        if "stock" not in columns:
+            with self.db:
+                self.db.execute("ALTER TABLE products ADD COLUMN stock INTEGER NOT NULL DEFAULT 0 CHECK(stock >= 0)")
+        self.db.execute("PRAGMA busy_timeout = 5000")
 
     def set_product_image(self, product_id, filename):
         with self.db:
             cursor = self.db.execute("UPDATE products SET image=? WHERE id=?", (filename, product_id))
             if cursor.rowcount != 1:
+                raise ValueError("Produto não encontrado.")
+
+    def set_stock(self, product_id, quantity):
+        if type(quantity) is not int or quantity < 0:
+            raise ValueError("Informe uma quantidade inteira maior ou igual a zero.")
+        with self.db:
+            updated = self.db.execute("UPDATE products SET stock=? WHERE id=?", (quantity, product_id))
+            if updated.rowcount != 1:
                 raise ValueError("Produto não encontrado.")
 
     def session(self):
@@ -90,22 +102,34 @@ class Store:
                             (session['id'], kind, -amount if kind == 'Sangria' else amount, note.strip()))
 
     def sell(self, cart, payment):
-        session = self.required_session()
         if not cart or payment not in ('Dinheiro', 'Pix', 'Cartão'):
             raise ValueError('Adicione produtos e selecione o pagamento.')
-        lines = []
-        for product_id, quantity in cart.items():
-            product = self.db.execute('SELECT * FROM products WHERE id=?', (product_id,)).fetchone()
-            if not product or type(quantity) is not int or quantity <= 0:
-                raise ValueError('Produto ou quantidade inválida.')
-            lines.append((product, quantity))
-        total = sum(p['price'] * q for p, q in lines)
-        with self.db:
+        # Trava de escrita antes de conferir estoque, evitando vendas simultâneas
+        # que poderiam utilizar as mesmas unidades.
+        self.db.execute('BEGIN IMMEDIATE')
+        try:
+            session = self.required_session()
+            lines = []
+            for product_id, quantity in cart.items():
+                product = self.db.execute('SELECT * FROM products WHERE id=?', (product_id,)).fetchone()
+                if not product or type(quantity) is not int or quantity <= 0:
+                    raise ValueError('Produto ou quantidade inválida.')
+                if product['stock'] < quantity:
+                    raise ValueError(f"Estoque insuficiente para {product['name']}. Disponível: {product['stock']}.")
+                lines.append((product, quantity))
+            total = sum(p['price'] * q for p, q in lines)
             sale_id = self.db.execute('INSERT INTO sales(session_id,payment,total) VALUES (?,?,?)',
                                       (session['id'], payment, total)).lastrowid
             self.db.executemany('INSERT INTO items VALUES (?,?,?,?,?)',
                                 [(sale_id, p['id'], p['name'], p['price'], q) for p, q in lines])
-        return sale_id, total
+            for product, quantity in lines:
+                self.db.execute('UPDATE products SET stock=stock-? WHERE id=?',
+                                (quantity, product['id']))
+            self.db.commit()
+            return sale_id, total
+        except BaseException:
+            self.db.rollback()
+            raise
 
     def close(self, counted):
         session = self.required_session()
