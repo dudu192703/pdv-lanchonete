@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PDV Lanchonete</title><link rel="stylesheet" href="/static/style.css"></head>
+<body>
+<header><h1>🍔 LANCHONETE <small>PDV WEB</small></h1><input id="search" placeholder="🔎 Pesquisar produto..."><button id="login">Entrar</button></header>
+<div class="layout">
+<nav><button class="selected" data-tab="caixa">⌂ Caixa</button><button data-tab="produtos">▣ Produtos</button><button data-tab="vendas">▤ Vendas</button><button data-tab="financeiro">▣ Caixa financeiro</button></nav>
+<main><div id="status" class="status">Conecte-se para começar.</div><section id="caixa" class="page active"><h2>Produtos</h2><div id="products" class="products"></div></section>
+<section id="produtos" class="page"><h2>Cadastrar produto</h2><form id="productForm"><input name="name" placeholder="Nome do produto" required><input name="price" placeholder="Preço (ex.: 12,50)" required><button>Salvar produto</button></form></section>
+<section id="vendas" class="page"><h2>Últimas vendas</h2><div id="history"></div></section>
+<section id="financeiro" class="page"><h2>Controle do caixa</h2><div class="actions"><button id="open">Abrir caixa</button><button id="withdraw">Sangria</button><button id="supply">Suprimento</button><button id="close">Fechar caixa</button></div></section>
+</main>
+<aside><div class="asidehead"><h2>Pedido Atual</h2><button id="clear" class="danger">Limpar</button></div><div id="cart"></div><div class="sum">Total <strong id="total">R$ 0,00</strong></div><h3>Forma de pagamento</h3><div class="payments"><button class="chosen" data-pay="Dinheiro">Dinheiro</button><button data-pay="Pix">Pix</button><button data-pay="Cartão">Cartão</button></div><button id="finish" class="finish">✓ FINALIZAR VENDA</button></aside>
+</div><script src="/static/app.js"></script></body></html>
