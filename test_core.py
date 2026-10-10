@@ -49,6 +49,15 @@ class CashTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 self.store.set_stock(1, qty)
 
+    def test_sale_items_preserved(self):
+        self.store.open(0)
+        sale_id, total = self.store.sell({1: 2}, 'Pix')
+        row = self.store.db.execute(
+            'SELECT name,price,quantity FROM items WHERE sale_id=?', (sale_id,)
+        ).fetchone()
+        self.assertEqual((row['name'], row['price'], row['quantity']), ('Suco', 750, 2))
+        self.assertEqual(total, 1500)
+
     def test_money(self):
         self.assertEqual(cents('10,50'), 1050)
         for value in ['-1', 'NaN', 'Infinity', '1.001', 'abc']:
