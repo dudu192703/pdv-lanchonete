@@ -1,21 +1,16 @@
-# PDV Web — versão inicial de desenvolvimento
+# PDV Web — iniciar no Windows
 
-O branch `web-pdv` introduz uma interface responsiva com FastAPI, mantendo o `core.py` e banco SQLite existentes.
-
-## Windows PowerShell
+Na pasta do projeto, execute no PowerShell:
 
 ```powershell
-git fetch origin
-git switch web-pdv
-py -m venv .venv
-.\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
-$env:PDV_TOKEN = (py -c "import secrets; print(secrets.token_urlsafe(32))")
-py -m uvicorn web_server:app --host 127.0.0.1 --port 8000
+git pull origin web-pdv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+$env:PDV_PASSWORD = Read-Host "Defina a senha do PDV (mínimo 10 caracteres)"
+.\.venv\Scripts\python.exe -m uvicorn web_server:app --host 127.0.0.1 --port 8000
 ```
 
-Abra http://127.0.0.1:8000 e clique em **Entrar**. A chave exibida apenas na variável de ambiente do PowerShell pode ser consultada com `echo $env:PDV_TOKEN`. Não envie essa chave ao GitHub.
+Abra http://127.0.0.1:8000 e clique em Entrar. Informe a senha escolhida.
 
-**Importante:** Esta é uma versão de desenvolvimento, **não pronta para exposição pública**. Antes de configurar um túnel, implementar autenticação por sessão, proteção contra CSRF, controle de acesso e testes de concorrência. Não exponha a porta 8000 à internet. A chave em sessionStorage é provisória. O SQLite atual usa uma conexão compartilhada e deve ser refatorado para acesso concorrente antes de múltiplos clientes.
+A senha fica na variável de ambiente apenas da sessão do PowerShell. Ao reiniciar em uma nova janela, configure-a novamente. Não coloque a senha em arquivos versionados nem envie ao GitHub. Para configuração permanente, será criado posteriormente um arquivo local seguro.
 
-O pagamento atual é dinheiro, Pix ou cartão; pagamento misto e distinção entre débito e crédito continuam pendentes. Impressão USB também não foi implementada.
+O login usa cookie HttpOnly com sessão de 8 horas e limite de tentativas incorretas. A sessão se perde ao reiniciar o servidor. Ainda **não exponha o PDV na internet**: falta revisar HTTPS atrás de proxy, CSRF, SQLite concorrente e testes.
