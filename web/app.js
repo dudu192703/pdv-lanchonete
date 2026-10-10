@@ -21,6 +21,25 @@ function showImage(p,parent){
     const placeholder=document.createElement('div');placeholder.className='placeholder';placeholder.textContent='🍔';parent.append(placeholder);
   }
 }
+function renderInventory(){
+ const root=$('inventory');root.replaceChildren();
+ for(const p of products){
+   const row=document.createElement('div');row.className='stock-row';
+   const label=document.createElement('span');label.textContent=p.name;
+   const current=document.createElement('strong');current.textContent=p.stock+' un.';
+   if(p.stock===0)current.className='out-of-stock';
+   const input=document.createElement('input');input.type='number';input.min='0';input.step='1';input.value=p.stock;input.setAttribute('aria-label','Quantidade de '+p.name);
+   const save=document.createElement('button');save.textContent='Salvar';
+   save.onclick=async()=>{
+     const quantity=Number(input.value);
+     if(!Number.isSafeInteger(quantity)||quantity<0){alert('Informe uma quantidade inteira válida.');return}
+     save.disabled=true;
+     try{await api('products/'+p.id+'/stock','PUT',{quantity});await refresh()}
+     catch(e){alert(e.message);save.disabled=false}
+   };
+   row.append(label,current,input,save);root.append(row);
+ }
+}
 function renderRegistered(){
   const el=$('registered');el.replaceChildren();
   for(const p of products){
@@ -39,11 +58,11 @@ async function sendImage(id,file){
   if(imageUrls.has(id)){URL.revokeObjectURL(imageUrls.get(id));imageUrls.delete(id)}
   await refresh();
 }
-async function refresh(){try{const data=await api('state');loggedIn=true;$('login').textContent='Sair';products=data.products;$('status').textContent=data.session?'● Caixa aberto #'+data.session.id+' • Saldo em dinheiro: '+money(data.session.balance):'● Caixa fechado';render();renderRegistered()}catch(e){loggedIn=false;$('login').textContent='Entrar';$('status').textContent=e.message}}
-function render(){const q=$('search').value.toLowerCase();$('products').replaceChildren();for(const p of products.filter(p=>p.name.toLowerCase().includes(q))){const b=document.createElement('button');b.className='product';const n=document.createElement('span');n.textContent=p.name;const v=document.createElement('strong');v.textContent=money(p.price);const info=document.createElement('div');info.className='pinfo';info.append(n,v);showImage(p,b);b.append(info);b.onclick=()=>{cart[p.id]=(cart[p.id]||0)+1;render()};$('products').append(b)}$('cart').replaceChildren();let total=0;for(const [id,qty] of Object.entries(cart)){const p=products.find(p=>p.id==id);if(!p)continue;total+=p.price*qty;const row=document.createElement('div');row.className='item';const name=document.createElement('span');name.textContent=p.name+' • '+money(p.price*qty);const minus=document.createElement('button');minus.textContent='−';minus.onclick=()=>{if(--cart[id]<=0)delete cart[id];render()};const count=document.createElement('b');count.textContent=qty;const plus=document.createElement('button');plus.textContent='+';plus.onclick=()=>{cart[id]++;render()};row.append(name,minus,count,plus);$('cart').append(row)}$('total').textContent=money(total)}
+async function refresh(){try{const data=await api('state');loggedIn=true;$('login').textContent='Sair';products=data.products;$('status').textContent=data.session?'● Caixa aberto #'+data.session.id+' • Saldo em dinheiro: '+money(data.session.balance):'● Caixa fechado';render();renderRegistered();renderInventory()}catch(e){loggedIn=false;$('login').textContent='Entrar';$('status').textContent=e.message}}
+function render(){const q=$('search').value.toLowerCase();$('products').replaceChildren();for(const p of products.filter(p=>p.name.toLowerCase().includes(q))){const b=document.createElement('button');b.className='product';if(p.stock===0)b.classList.add('sold-out');const n=document.createElement('span');n.textContent=p.name;const v=document.createElement('strong');v.textContent=money(p.price);const stock=document.createElement('small');stock.textContent=p.stock>0?'Estoque: '+p.stock:'Sem estoque';const info=document.createElement('div');info.className='pinfo';info.append(n,v,stock);showImage(p,b);b.append(info);b.onclick=()=>{if((cart[p.id]||0)>=p.stock){alert('Estoque insuficiente para '+p.name+'. Disponível: '+p.stock);return}cart[p.id]=(cart[p.id]||0)+1;render()};$('products').append(b)}$('cart').replaceChildren();let total=0;for(const [id,qty] of Object.entries(cart)){const p=products.find(p=>p.id==id);if(!p)continue;total+=p.price*qty;const row=document.createElement('div');row.className='item';const name=document.createElement('span');name.textContent=p.name+' • '+money(p.price*qty);const minus=document.createElement('button');minus.textContent='−';minus.onclick=()=>{if(--cart[id]<=0)delete cart[id];render()};const count=document.createElement('b');count.textContent=qty;const plus=document.createElement('button');plus.textContent='+';plus.onclick=()=>{if(cart[id]>=p.stock){alert('Estoque insuficiente para '+p.name);return}cart[id]++;render()};row.append(name,minus,count,plus);$('cart').append(row)}$('total').textContent=money(total)}
 async function act(path,body){try{await api(path,'POST',body);await refresh()}catch(e){alert(e.message)}}
 $('login').onclick=async()=>{
- if(loggedIn){try{await api('logout','POST');loggedIn=false;products=[];cart={};$('login').textContent='Entrar';render();renderRegistered();$('status').textContent='Sessão encerrada.'}catch(e){alert(e.message)}return}
+ if(loggedIn){try{await api('logout','POST');loggedIn=false;products=[];cart={};$('login').textContent='Entrar';render();renderRegistered();renderInventory();$('status').textContent='Sessão encerrada.'}catch(e){alert(e.message)}return}
  const password=prompt('Digite sua senha do PDV:');if(password===null)return;
  try{await api('login','POST',{password});await refresh()}catch(e){alert(e.message)}
 };
