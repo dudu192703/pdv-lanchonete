@@ -39,6 +39,16 @@ class Store:
                 sale_id INTEGER REFERENCES sales(id), product_id INTEGER REFERENCES products(id),
                 name TEXT NOT NULL, price INTEGER NOT NULL, quantity INTEGER NOT NULL);
         ''')
+        columns = {row["name"] for row in self.db.execute("PRAGMA table_info(products)")}
+        if "image" not in columns:
+            with self.db:
+                self.db.execute("ALTER TABLE products ADD COLUMN image TEXT")
+
+    def set_product_image(self, product_id, filename):
+        with self.db:
+            cursor = self.db.execute("UPDATE products SET image=? WHERE id=?", (filename, product_id))
+            if cursor.rowcount != 1:
+                raise ValueError("Produto não encontrado.")
 
     def session(self):
         return self.db.execute('SELECT * FROM sessions WHERE closed IS NULL').fetchone()
