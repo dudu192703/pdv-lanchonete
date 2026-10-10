@@ -196,3 +196,27 @@ def close_cash(data: MoneyInput, s: Store = Depends(get_store)):
 def history(s: Store = Depends(get_store)):
     sales = s.db.execute("SELECT id,created,payment,total FROM sales ORDER BY id DESC LIMIT 100").fetchall()
     return [dict(row) for row in sales]
+
+@app.get("/api/inventory", dependencies=[Depends(auth)])
+def inventory(s: Store = Depends(get_store)):
+    return [{"id": p["id"], "name": p["name"], "stock": p["stock"]} for p in s.products()]
+
+@app.get("/api/sales/{sale_id}/items", dependencies=[Depends(auth)])
+def sale_items(sale_id: int, s: Store = Depends(get_store)):
+    if not s.db.execute("SELECT 1 FROM sales WHERE id=?", (sale_id,)).fetchone():
+        raise HTTPException(404, "Venda não encontrada.")
+    rows = s.db.execute("SELECT name,price,quantity FROM items WHERE sale_id=? ORDER BY rowid", (sale_id,)).fetchall()
+    return [dict(row) for row in rows]
+
+@app.get("/api/sales-summary", dependencies=[Depends(auth)])
+def sales_summary(product_id: int | None = None, s: Store = Depends(get_store)):
+    if product_id is not None and not s.db.execute("SELECT 1 FROM products WHERE id=?", (product_id,)).fetchone():
+        raise HTTPException(404, "Produto não encontrado.")
+    where = "WHERE i.product_id=?" if product_id is not None else ""
+    params = (product_id,) if product_id is not None else ()
+    rows = s.db.execute(
+        "SELECT i.product_id, i.name, SUM(i.quantity) AS quantity, "
+        "SUM(i.quantity*i.price) AS total FROM items i " + where +
+        " GROUP BY i.product_id, i.name ORDER BY quantity DESC, i.name", params
+    ).fetchall()
+    return [dict(row) for row in rows]
