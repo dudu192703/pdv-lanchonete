@@ -6,7 +6,7 @@
 <div class="layout">
 <nav><button class="selected" data-tab="caixa">⌂ Caixa</button><button data-tab="produtos">▣ Produtos</button><button data-tab="vendas">▤ Vendas</button><button data-tab="financeiro">▣ Caixa financeiro</button></nav>
 <main><div id="status" class="status">Conecte-se para começar.</div><section id="caixa" class="page active"><h2>Produtos</h2><div id="products" class="products"></div></section>
-<section id="produtos" class="page"><h2>Cadastrar produto</h2><form id="productForm"><input name="name" placeholder="Nome do produto" required><input name="price" placeholder="Preço (ex.: 12,50)" required><button>Salvar produto</button></form></section>
+<section id="produtos" class="page"><h2>Cadastrar produto</h2><form id="productForm"><input name="name" placeholder="Nome do produto" required><input name="price" placeholder="Preço (ex.: 12,50)" required><label class="filepick">📷 Foto do produto <input name="image" type="file" accept="image/jpeg,image/png,image/webp"></label><button>Salvar produto</button></form><p class="hint">Toque uma vez no produto no caixa para adicionar ao pedido. Fotos são opcionais.</p><div id="registered"></div></section>
 <section id="vendas" class="page"><h2>Últimas vendas</h2><div id="history"></div></section>
 <section id="financeiro" class="page"><h2>Controle do caixa</h2><div class="actions"><button id="open">Abrir caixa</button><button id="withdraw">Sangria</button><button id="supply">Suprimento</button><button id="close">Fechar caixa</button></div></section>
 </main>
