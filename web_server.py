@@ -1,6 +1,5 @@
 """Servidor web do PDV. Execute: python -m uvicorn web_server:app --host 127.0.0.1 --port 8000"""
 from pathlib import Path
-from contextlib import asynccontextmanager
 import os
 import secrets
 import base64
@@ -26,15 +25,7 @@ SESSIONS = {}
 FAILED = defaultdict(list)
 SESSION_SECONDS = 8 * 60 * 60
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    app.state.store = Store(BASE / "pdv.sqlite3")
-    try:
-        yield
-    finally:
-        app.state.store.db.close()
-
-app = FastAPI(title="PDV Lanchonete", lifespan=lifespan, docs_url=None, redoc_url=None)
+app = FastAPI(title="PDV Lanchonete", docs_url=None, redoc_url=None)
 app.mount("/static", StaticFiles(directory=BASE / "web"), name="static")
 
 def auth(request: Request):
@@ -51,8 +42,13 @@ def auth(request: Request):
             raise HTTPException(403, "Origem não autorizada.")
     SESSIONS[sid] = time.time() + SESSION_SECONDS
 
-def store():
-    return app.state.store
+def get_store():
+    """Uma conexão SQLite independente por requisição, fechada após o uso."""
+    db = Store(BASE / "pdv.sqlite3")
+    try:
+        yield db
+    finally:
+        db.db.close()
 
 class LoginInput(BaseModel):
     password: str
@@ -103,22 +99,21 @@ def home():
     return FileResponse(BASE / "web" / "index.html")
 
 @app.get("/api/state", dependencies=[Depends(auth)])
-def state():
-    s = store()
+def state(s: Store = Depends(get_store)):
     session = s.session()
     return {"products": [{"id": p["id"], "name": p["name"], "price": p["price"], "image": bool(p["image"])} for p in s.products()],
             "session": {"id": session["id"], "balance": s.balance(session)} if session else None}
 
 @app.post("/api/products", dependencies=[Depends(auth)])
-def add_product(data: ProductInput):
+def add_product(data: ProductInput, s: Store = Depends(get_store)):
     try:
-        store().add_product(data.name, cents(data.price))
+        s.add_product(data.name, cents(data.price))
         return {"ok": True}
     except ValueError as exc:
         raise HTTPException(400, str(exc))
 
 @app.put("/api/products/{product_id}/image", dependencies=[Depends(auth)])
-def upload_product_image(product_id: int, payload: ImageInput):
+def upload_product_image(product_id: int, payload: ImageInput, s: Store = Depends(get_store)):
     if len(payload.data) > 6_000_000:
         raise HTTPException(413, "Imagem muito grande (máximo 4 MB).")
     try:
@@ -137,7 +132,6 @@ def upload_product_image(product_id: int, payload: ImageInput):
             image.save(output, format="JPEG", quality=83, optimize=True)
     except (ValueError, UnidentifiedImageError, OSError, binascii.Error) as exc:
         raise HTTPException(400, "Arquivo de imagem inválido.") from exc
-    s = store()
     if not s.db.execute("SELECT 1 FROM products WHERE id=?", (product_id,)).fetchone():
         raise HTTPException(404, "Produto não encontrado.")
     filename = uuid.uuid4().hex + ".jpg"
@@ -146,8 +140,8 @@ def upload_product_image(product_id: int, payload: ImageInput):
     return {"ok": True}
 
 @app.get("/api/products/{product_id}/image", dependencies=[Depends(auth)])
-def product_image(product_id: int):
-    row = store().db.execute("SELECT image FROM products WHERE id=?", (product_id,)).fetchone()
+def product_image(product_id: int, s: Store = Depends(get_store)):
+    row = s.db.execute("SELECT image FROM products WHERE id=?", (product_id,)).fetchone()
     if not row or not row["image"]:
         raise HTTPException(404, "Imagem não encontrada.")
     path = IMAGES / Path(row["image"]).name
@@ -156,39 +150,38 @@ def product_image(product_id: int):
     return FileResponse(path, media_type="image/jpeg", headers={"Cache-Control": "no-store"})
 
 @app.post("/api/open", dependencies=[Depends(auth)])
-def open_cash(data: MoneyInput):
+def open_cash(data: MoneyInput, s: Store = Depends(get_store)):
     try:
-        store().open(cents(data.amount))
+        s.open(cents(data.amount))
         return {"ok": True}
     except ValueError as exc:
         raise HTTPException(400, str(exc))
 
 @app.post("/api/movement", dependencies=[Depends(auth)])
-def movement(data: MovementInput):
+def movement(data: MovementInput, s: Store = Depends(get_store)):
     try:
-        store().move(data.kind, cents(data.amount), data.note)
+        s.move(data.kind, cents(data.amount), data.note)
         return {"ok": True}
     except ValueError as exc:
         raise HTTPException(400, str(exc))
 
 @app.post("/api/sales", dependencies=[Depends(auth)])
-def sale(data: SaleInput):
+def sale(data: SaleInput, s: Store = Depends(get_store)):
     try:
-        sale_id, total = store().sell(data.cart, data.payment)
+        sale_id, total = s.sell(data.cart, data.payment)
         return {"id": sale_id, "total": total}
     except ValueError as exc:
         raise HTTPException(400, str(exc))
 
 @app.post("/api/close", dependencies=[Depends(auth)])
-def close_cash(data: MoneyInput):
+def close_cash(data: MoneyInput, s: Store = Depends(get_store)):
     try:
-        expected, difference = store().close(cents(data.amount))
+        expected, difference = s.close(cents(data.amount))
         return {"expected": expected, "difference": difference}
     except ValueError as exc:
         raise HTTPException(400, str(exc))
 
 @app.get("/api/history", dependencies=[Depends(auth)])
-def history():
-    s = store()
+def history(s: Store = Depends(get_store)):
     sales = s.db.execute("SELECT id,created,payment,total FROM sales ORDER BY id DESC LIMIT 100").fetchall()
     return [dict(row) for row in sales]
