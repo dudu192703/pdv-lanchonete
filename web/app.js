@@ -21,9 +21,9 @@ function showImage(p,parent){
     const placeholder=document.createElement('div');placeholder.className='placeholder';placeholder.textContent='🍔';parent.append(placeholder);
   }
 }
-function renderInventory(){
+function renderInventory(items=products){
  const root=$('inventory');root.replaceChildren();
- for(const p of products){
+ for(const p of items){
    const row=document.createElement('div');row.className='stock-row';
    const label=document.createElement('span');label.textContent=p.name;
    const current=document.createElement('strong');current.textContent=p.stock+' un.';
@@ -39,6 +39,13 @@ function renderInventory(){
    };
    row.append(label,current,input,save);root.append(row);
  }
+}
+async function refreshInventory(){
+ try{
+   const items=await api('inventory');
+   renderInventory(items);
+   $('inventoryError').textContent=items.length?'':'Nenhum produto cadastrado.';
+ }catch(e){$('inventoryError').textContent='Erro ao carregar estoque: '+e.message}
 }
 function renderRegistered(){
   const el=$('registered');el.replaceChildren();
@@ -58,7 +65,7 @@ async function sendImage(id,file){
   if(imageUrls.has(id)){URL.revokeObjectURL(imageUrls.get(id));imageUrls.delete(id)}
   await refresh();
 }
-async function refresh(){try{const data=await api('state');loggedIn=true;$('login').textContent='Sair';products=data.products;$('status').textContent=data.session?'● Caixa aberto #'+data.session.id+' • Saldo em dinheiro: '+money(data.session.balance):'● Caixa fechado';render();renderRegistered();renderInventory()}catch(e){loggedIn=false;$('login').textContent='Entrar';$('status').textContent=e.message}}
+async function refresh(){try{const data=await api('state');loggedIn=true;$('login').textContent='Sair';products=data.products;$('status').textContent=data.session?'● Caixa aberto #'+data.session.id+' • Saldo em dinheiro: '+money(data.session.balance):'● Caixa fechado';render();renderRegistered();await refreshInventory()}catch(e){loggedIn=false;$('login').textContent='Entrar';$('status').textContent=e.message}}
 function render(){const q=$('search').value.toLowerCase();$('products').replaceChildren();for(const p of products.filter(p=>p.name.toLowerCase().includes(q))){const b=document.createElement('button');b.className='product';if(p.stock===0)b.classList.add('sold-out');const n=document.createElement('span');n.textContent=p.name;const v=document.createElement('strong');v.textContent=money(p.price);const stock=document.createElement('small');stock.textContent=p.stock>0?'Estoque: '+p.stock:'Sem estoque';const info=document.createElement('div');info.className='pinfo';info.append(n,v,stock);showImage(p,b);b.append(info);b.onclick=()=>{if((cart[p.id]||0)>=p.stock){alert('Estoque insuficiente para '+p.name+'. Disponível: '+p.stock);return}cart[p.id]=(cart[p.id]||0)+1;render()};$('products').append(b)}$('cart').replaceChildren();let total=0;for(const [id,qty] of Object.entries(cart)){const p=products.find(p=>p.id==id);if(!p)continue;total+=p.price*qty;const row=document.createElement('div');row.className='item';const name=document.createElement('span');name.textContent=p.name+' • '+money(p.price*qty);const minus=document.createElement('button');minus.textContent='−';minus.onclick=()=>{if(--cart[id]<=0)delete cart[id];render()};const count=document.createElement('b');count.textContent=qty;const plus=document.createElement('button');plus.textContent='+';plus.onclick=()=>{if(cart[id]>=p.stock){alert('Estoque insuficiente para '+p.name);return}cart[id]++;render()};row.append(name,minus,count,plus);$('cart').append(row)}$('total').textContent=money(total)}
 async function act(path,body){try{await api(path,'POST',body);await refresh()}catch(e){alert(e.message)}}
 $('login').onclick=async()=>{
@@ -68,7 +75,7 @@ $('login').onclick=async()=>{
 };
 $('search').oninput=render;$('clear').onclick=()=>{cart={};render()};
 document.querySelectorAll('[data-pay]').forEach(b=>b.onclick=()=>{payment=b.dataset.pay;document.querySelectorAll('[data-pay]').forEach(x=>x.classList.toggle('chosen',x===b))});
-$('finish').onclick=async()=>{if(!Object.keys(cart).length)return alert('Adicione produtos.');if(!confirm('Confirmar venda de '+$('total').textContent+' por '+payment+'?'))return;try{const s=await api('sales','POST',{cart,payment});cart={};await refresh();alert('Venda #'+s.id+' registrada!')}catch(e){alert(e.message)}};
+$('finish').onclick=async()=>{if(!Object.keys(cart).length)return alert('Adicione produtos.');const btn=$('finish');if(btn.disabled)return;btn.disabled=true;try{const s=await api('sales','POST',{cart,payment});cart={};await refresh();$('status').textContent='✓ Venda #'+s.id+' registrada com sucesso!'}catch(e){alert(e.message)}finally{btn.disabled=false}};
 $('productForm').onsubmit=async e=>{
  e.preventDefault();const form=e.target;const f=new FormData(form);const button=form.querySelector('button');button.disabled=true;
  try{
@@ -87,4 +94,56 @@ $('open').onclick=()=>{const amount=askAmount('Abertura');if(amount!==null)act('
 $('close').onclick=()=>{const amount=askAmount('Dinheiro contado no fechamento');if(amount!==null&&confirm('Confirmar fechamento?'))act('close',{amount})};
 async function movement(kind){const amount=askAmount(kind);if(amount===null)return;const note=prompt('Motivo:');if(note!==null)await act('movement',{kind,amount,note})}
 $('withdraw').onclick=()=>movement('Sangria');$('supply').onclick=()=>movement('Suprimento');
-document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=async()=>{document.querySelectorAll('[data-tab]').forEach(x=>x.classList.toggle('selected',x===b));document.querySelectorAll('.page').forEach(x=>x.classList.toggle('active',x.id===b.dataset.tab));if(b.dataset.tab==='vendas'){try{const rows=await api('history');$('history').replaceChildren();rows.forEach(r=>{const d=document.createElement('div');d.textContent='#'+r.id+' • '+r.created+' • '+r.payment+' • '+money(r.total);$('history').append(d)})}catch(e){alert(e.message)}}});refresh();
+document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=async()=>{document.querySelectorAll('[data-tab]').forEach(x=>x.classList.toggle('selected',x===b));document.querySelectorAll('.page').forEach(x=>x.classList.toggle('active',x.id===b.dataset.tab));if(b.dataset.tab==='estoque')await refreshInventory();if(b.dataset.tab==='vendas')await loadSales()});refresh();
+
+async function loadSales(){
+ try{
+  const rows=await api('history');
+  const select=$('salesProduct'),chosen=select.value;
+  select.replaceChildren(new Option('Todos os produtos',''));
+  for(const p of products)select.add(new Option(p.name,p.id));
+  select.value=chosen;
+  const root=$('history');root.replaceChildren();
+  for(const sale of rows){
+   const detail=document.createElement('details');detail.className='sale-detail';
+   const head=document.createElement('summary');
+   head.textContent='#'+sale.id+' • '+sale.created+' • '+sale.payment+' • '+money(sale.total);
+   const content=document.createElement('div');content.className='sale-lines';
+   detail.append(head,content);
+   detail.addEventListener('toggle',async()=>{
+    if(!detail.open||detail.dataset.loaded)return;
+    content.textContent='Carregando...';
+    try{
+     const items=await api('sales/'+sale.id+'/items');
+     content.replaceChildren();
+     for(const item of items){
+      const line=document.createElement('div');
+      line.textContent=item.quantity+'× '+item.name+' — '+money(item.quantity*item.price);
+      content.append(line);
+     }
+     if(!items.length)content.textContent='Nenhum item encontrado.';
+     detail.dataset.loaded='1';
+    }catch(e){content.textContent='Erro: '+e.message}
+   });
+   root.append(detail);
+  }
+ }catch(e){$('history').textContent='Erro ao carregar vendas: '+e.message}
+}
+$('salesSearch').onclick=async()=>{
+ const id=$('salesProduct').value;
+ const root=$('salesSummary');root.textContent='Buscando...';
+ try{
+  const rows=await api('sales-summary'+(id?'?product_id='+encodeURIComponent(id):''));
+  root.replaceChildren();
+  let qty=0,total=0;
+  for(const p of rows){
+   qty+=p.quantity;total+=p.total;
+   const row=document.createElement('div');row.className='summary-line';
+   row.textContent=p.name+' — '+p.quantity+' unidade(s) • '+money(p.total);
+   root.append(row);
+  }
+  const foot=document.createElement('strong');
+  foot.textContent='Total: '+qty+' unidade(s) • '+money(total);
+  root.append(foot);
+ }catch(e){root.textContent='Erro: '+e.message}
+};
