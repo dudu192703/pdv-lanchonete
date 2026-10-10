@@ -87,6 +87,9 @@ class ProductInput(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     price: str
 
+class StockInput(BaseModel):
+    quantity: int = Field(ge=0)
+
 class ImageInput(BaseModel):
     data: str
 
@@ -101,13 +104,21 @@ def home():
 @app.get("/api/state", dependencies=[Depends(auth)])
 def state(s: Store = Depends(get_store)):
     session = s.session()
-    return {"products": [{"id": p["id"], "name": p["name"], "price": p["price"], "image": bool(p["image"])} for p in s.products()],
+    return {"products": [{"id": p["id"], "name": p["name"], "price": p["price"], "image": bool(p["image"]), "stock": p["stock"]} for p in s.products()],
             "session": {"id": session["id"], "balance": s.balance(session)} if session else None}
 
 @app.post("/api/products", dependencies=[Depends(auth)])
 def add_product(data: ProductInput, s: Store = Depends(get_store)):
     try:
         s.add_product(data.name, cents(data.price))
+        return {"ok": True}
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+
+@app.put("/api/products/{product_id}/stock", dependencies=[Depends(auth)])
+def update_stock(product_id: int, data: StockInput, s: Store = Depends(get_store)):
+    try:
+        s.set_stock(product_id, data.quantity)
         return {"ok": True}
     except ValueError as exc:
         raise HTTPException(400, str(exc))
