@@ -3,13 +3,20 @@ from pathlib import Path
 from contextlib import asynccontextmanager
 import os
 import secrets
+import base64
+import binascii
+import io
+import uuid
+from PIL import Image, UnidentifiedImageError
 from fastapi import FastAPI, HTTPException, Depends, Header
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from core import Store, cents, money
 
 BASE = Path(__file__).resolve().parent
+IMAGES = BASE / 'product_images'
+IMAGES.mkdir(exist_ok=True)
 TOKEN = os.getenv("PDV_TOKEN")
 if not TOKEN:
     raise RuntimeError("Defina PDV_TOKEN no ambiente antes de iniciar o servidor.")
@@ -43,6 +50,9 @@ class ProductInput(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     price: str
 
+class ImageInput(BaseModel):
+    data: str
+
 class SaleInput(BaseModel):
     cart: dict[int, int]
     payment: str
@@ -55,7 +65,7 @@ def home():
 def state():
     s = store()
     session = s.session()
-    return {"products": [{"id": p["id"], "name": p["name"], "price": p["price"]} for p in s.products()],
+    return {"products": [{"id": p["id"], "name": p["name"], "price": p["price"], "image": bool(p["image"])} for p in s.products()],
             "session": {"id": session["id"], "balance": s.balance(session)} if session else None}
 
 @app.post("/api/products", dependencies=[Depends(auth)])
@@ -65,6 +75,44 @@ def add_product(data: ProductInput):
         return {"ok": True}
     except ValueError as exc:
         raise HTTPException(400, str(exc))
+
+@app.put("/api/products/{product_id}/image", dependencies=[Depends(auth)])
+def upload_product_image(product_id: int, payload: ImageInput):
+    if len(payload.data) > 6_000_000:
+        raise HTTPException(413, "Imagem muito grande (máximo 4 MB).")
+    try:
+        raw = base64.b64decode(payload.data, validate=True)
+        if len(raw) > 4_000_000:
+            raise ValueError("Imagem muito grande.")
+        with Image.open(io.BytesIO(raw)) as source:
+            if source.format not in ("JPEG", "PNG", "WEBP"):
+                raise ValueError("Use JPG, PNG ou WEBP.")
+            if source.width * source.height > 20_000_000:
+                raise ValueError("Resolução muito alta.")
+            source.load()
+            image = source.convert("RGB")
+            image.thumbnail((800, 800))
+            output = io.BytesIO()
+            image.save(output, format="JPEG", quality=83, optimize=True)
+    except (ValueError, UnidentifiedImageError, OSError, binascii.Error) as exc:
+        raise HTTPException(400, "Arquivo de imagem inválido.") from exc
+    s = store()
+    if not s.db.execute("SELECT 1 FROM products WHERE id=?", (product_id,)).fetchone():
+        raise HTTPException(404, "Produto não encontrado.")
+    filename = uuid.uuid4().hex + ".jpg"
+    (IMAGES / filename).write_bytes(output.getvalue())
+    s.set_product_image(product_id, filename)
+    return {"ok": True}
+
+@app.get("/api/products/{product_id}/image", dependencies=[Depends(auth)])
+def product_image(product_id: int):
+    row = store().db.execute("SELECT image FROM products WHERE id=?", (product_id,)).fetchone()
+    if not row or not row["image"]:
+        raise HTTPException(404, "Imagem não encontrada.")
+    path = IMAGES / Path(row["image"]).name
+    if not path.is_file():
+        raise HTTPException(404, "Imagem não encontrada.")
+    return FileResponse(path, media_type="image/jpeg", headers={"Cache-Control": "no-store"})
 
 @app.post("/api/open", dependencies=[Depends(auth)])
 def open_cash(data: MoneyInput):
