@@ -6,6 +6,7 @@ class CashTests(unittest.TestCase):
     def setUp(self):
         self.store = Store(':memory:')
         self.store.add_product('Suco', 750)
+        self.store.set_stock(1, 10)
 
     def tearDown(self):
         self.store.db.close()
@@ -30,6 +31,23 @@ class CashTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 action()
         self.assertEqual(self.store.db.execute('SELECT COUNT(*) FROM sales').fetchone()[0], 0)
+
+    def test_stock_decreases_after_sale(self):
+        self.store.open(0)
+        self.store.sell({1: 3}, 'Pix')
+        self.assertEqual(self.store.products()[0]['stock'], 7)
+
+    def test_sale_cannot_exceed_stock(self):
+        self.store.open(0)
+        with self.assertRaisesRegex(ValueError, 'Estoque insuficiente'):
+            self.store.sell({1: 11}, 'Dinheiro')
+        self.assertEqual(self.store.products()[0]['stock'], 10)
+        self.assertEqual(self.store.db.execute('SELECT COUNT(*) FROM sales').fetchone()[0], 0)
+
+    def test_stock_edit_validation(self):
+        for qty in [-1, 1.5, '2']:
+            with self.assertRaises(ValueError):
+                self.store.set_stock(1, qty)
 
     def test_money(self):
         self.assertEqual(cents('10,50'), 1050)
