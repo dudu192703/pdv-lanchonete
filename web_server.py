@@ -234,3 +234,46 @@ def sales_summary(product_id: int | None = None, s: Store = Depends(get_store)):
         " GROUP BY i.product_id, i.name ORDER BY quantity DESC, i.name", params
     ).fetchall()
     return [dict(row) for row in rows]
+
+class TabInput(BaseModel):
+    customer: str = Field(min_length=1, max_length=120)
+
+class TabItemInput(BaseModel):
+    product_id: int
+
+class TabCloseInput(BaseModel):
+    payment: str
+
+@app.get("/api/tabs", dependencies=[Depends(auth)])
+def list_tabs(s: Store = Depends(get_store)):
+    return s.tabs()
+
+@app.post("/api/tabs", dependencies=[Depends(auth)])
+def new_tab(data: TabInput, s: Store = Depends(get_store)):
+    try:
+        return {"id": s.create_tab(data.customer)}
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+
+@app.get("/api/tabs/{tab_id}", dependencies=[Depends(auth)])
+def get_tab(tab_id: int, s: Store = Depends(get_store)):
+    try:
+        return s.tab_items(tab_id)
+    except ValueError as exc:
+        raise HTTPException(404, str(exc))
+
+@app.post("/api/tabs/{tab_id}/items", dependencies=[Depends(auth)])
+def add_to_tab(tab_id: int, data: TabItemInput, s: Store = Depends(get_store)):
+    try:
+        s.add_tab_item(tab_id, data.product_id)
+        return {"ok": True}
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+
+@app.post("/api/tabs/{tab_id}/close", dependencies=[Depends(auth)])
+def finish_tab(tab_id: int, data: TabCloseInput, s: Store = Depends(get_store)):
+    try:
+        sale_id,total = s.close_tab(tab_id, data.payment)
+        return {"id": sale_id, "total": total}
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
