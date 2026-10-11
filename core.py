@@ -46,6 +46,17 @@ class Store:
         if "stock" not in columns:
             with self.db:
                 self.db.execute("ALTER TABLE products ADD COLUMN stock INTEGER NOT NULL DEFAULT 0 CHECK(stock >= 0)")
+        self.db.executescript("""
+            CREATE TABLE IF NOT EXISTS tabs (
+                id INTEGER PRIMARY KEY, customer TEXT NOT NULL,
+                created TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                closed TEXT, sale_id INTEGER REFERENCES sales(id));
+            CREATE TABLE IF NOT EXISTS tab_items (
+                tab_id INTEGER NOT NULL REFERENCES tabs(id),
+                product_id INTEGER NOT NULL REFERENCES products(id),
+                name TEXT NOT NULL, price INTEGER NOT NULL, quantity INTEGER NOT NULL,
+                PRIMARY KEY(tab_id, product_id));
+        """)
         self.db.execute("PRAGMA busy_timeout = 5000")
 
     def set_product_image(self, product_id, filename):
@@ -139,3 +150,76 @@ class Store:
         with self.db:
             self.db.execute('UPDATE sessions SET closed=CURRENT_TIMESTAMP,counted=? WHERE id=?', (counted, session['id']))
         return expected, counted - expected
+
+    def tabs(self):
+        return [dict(r) for r in self.db.execute(
+            "SELECT t.id,t.customer,t.created,COALESCE(SUM(i.price*i.quantity),0) AS total "
+            "FROM tabs t LEFT JOIN tab_items i ON i.tab_id=t.id "
+            "WHERE t.closed IS NULL GROUP BY t.id ORDER BY t.id DESC")]
+
+    def create_tab(self, customer):
+        customer = customer.strip()
+        if not customer or len(customer) > 120:
+            raise ValueError("Informe um nome de cliente com até 120 caracteres.")
+        with self.db:
+            return self.db.execute("INSERT INTO tabs(customer) VALUES (?)", (customer,)).lastrowid
+
+    def tab_items(self, tab_id):
+        if not self.db.execute("SELECT 1 FROM tabs WHERE id=? AND closed IS NULL", (tab_id,)).fetchone():
+            raise ValueError("Comanda não encontrada ou já fechada.")
+        return [dict(r) for r in self.db.execute(
+            "SELECT product_id,name,price,quantity FROM tab_items WHERE tab_id=? ORDER BY name", (tab_id,))]
+
+    def add_tab_item(self, tab_id, product_id):
+        self.db.execute("BEGIN IMMEDIATE")
+        try:
+            tab = self.db.execute("SELECT id FROM tabs WHERE id=? AND closed IS NULL", (tab_id,)).fetchone()
+            product = self.db.execute("SELECT * FROM products WHERE id=?", (product_id,)).fetchone()
+            if not tab or not product:
+                raise ValueError("Comanda ou produto inválido.")
+            reserved = self.db.execute(
+                "SELECT COALESCE(SUM(quantity),0) FROM tab_items WHERE product_id=?", (product_id,)).fetchone()[0]
+            if product["stock"] <= reserved:
+                raise ValueError("Estoque insuficiente para " + product["name"])
+            self.db.execute(
+                "INSERT INTO tab_items(tab_id,product_id,name,price,quantity) VALUES (?,?,?,?,1) "
+                "ON CONFLICT(tab_id,product_id) DO UPDATE SET quantity=quantity+1",
+                (tab_id,product_id,product["name"],product["price"]))
+            self.db.commit()
+        except BaseException:
+            self.db.rollback()
+            raise
+
+    def close_tab(self, tab_id, payment):
+        if payment not in ("Dinheiro","Pix","Cartão"):
+            raise ValueError("Forma de pagamento inválida.")
+        self.db.execute("BEGIN IMMEDIATE")
+        try:
+            tab = self.db.execute("SELECT id FROM tabs WHERE id=? AND closed IS NULL", (tab_id,)).fetchone()
+            if not tab:
+                raise ValueError("Comanda já fechada ou inexistente.")
+            session = self.required_session()
+            items = self.db.execute(
+                "SELECT * FROM tab_items WHERE tab_id=?", (tab_id,)).fetchall()
+            if not items:
+                raise ValueError("Comanda sem produtos.")
+            for item in items:
+                product = self.db.execute("SELECT stock FROM products WHERE id=?", (item["product_id"],)).fetchone()
+                if not product or product["stock"] < item["quantity"]:
+                    raise ValueError("Estoque insuficiente para " + item["name"])
+            total = sum(item["price"]*item["quantity"] for item in items)
+            sale_id = self.db.execute(
+                "INSERT INTO sales(session_id,payment,total) VALUES (?,?,?)",
+                (session["id"],payment,total)).lastrowid
+            self.db.executemany("INSERT INTO items VALUES (?,?,?,?,?)",
+                [(sale_id,i["product_id"],i["name"],i["price"],i["quantity"]) for i in items])
+            for item in items:
+                self.db.execute("UPDATE products SET stock=stock-? WHERE id=?",
+                                (item["quantity"],item["product_id"]))
+            self.db.execute("UPDATE tabs SET closed=CURRENT_TIMESTAMP,sale_id=? WHERE id=?",
+                            (sale_id,tab_id))
+            self.db.commit()
+            return sale_id,total
+        except BaseException:
+            self.db.rollback()
+            raise
