@@ -125,8 +125,12 @@ class Store:
                 product = self.db.execute('SELECT * FROM products WHERE id=?', (product_id,)).fetchone()
                 if not product or type(quantity) is not int or quantity <= 0:
                     raise ValueError('Produto ou quantidade inválida.')
-                if product['stock'] < quantity:
-                    raise ValueError(f"Estoque insuficiente para {product['name']}. Disponível: {product['stock']}.")
+                reserved = self.db.execute(
+                    "SELECT COALESCE(SUM(quantity),0) FROM tab_items WHERE product_id=?",
+                    (product_id,)).fetchone()[0]
+                available = product['stock'] - reserved
+                if available < quantity:
+                    raise ValueError(f"Estoque insuficiente para {product['name']}. Disponível: {available}.")
                 lines.append((product, quantity))
             total = sum(p['price'] * q for p, q in lines)
             sale_id = self.db.execute('INSERT INTO sales(session_id,payment,total) VALUES (?,?,?)',
