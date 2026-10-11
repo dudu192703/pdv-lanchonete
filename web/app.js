@@ -149,6 +149,7 @@ $('salesSearch').onclick=async()=>{
 };
 
 let activeTab=null;
+let checkoutTab=null;
 async function loadTabs(){
  try{
   const tabs=await api('tabs'),root=$('tabList');root.replaceChildren();
@@ -167,7 +168,7 @@ $('tabForm').onsubmit=async e=>{
  try{const tab=await api('tabs','POST',{customer:name});$('customerName').value='';await loadTabs();await showTab(tab.id,name)}catch(err){alert(err.message)}
 };
 async function showTab(id,customer){
- activeTab=id;const root=$('tabDetail');root.replaceChildren();
+ activeTab=id;$('tabCheckout').hidden=true;checkoutTab=null;const root=$('tabDetail');root.replaceChildren();
  const heading=document.createElement('h3');heading.textContent='Comanda de '+customer;
  const lines=document.createElement('div');lines.className='tab-lines';
  const productsBox=document.createElement('div');productsBox.className='tab-products';
@@ -184,7 +185,7 @@ async function showTab(id,customer){
  }
  try{await reload()}catch(e){lines.textContent=e.message}
  for(const p of products){
-  const b=document.createElement('button');b.textContent=p.name+' • '+money(p.price);
+  const b=document.createElement('button');b.className='tab-product';showImage(p,b);const info=document.createElement('span');info.className='tab-product-info';const name=document.createElement('span');name.textContent=p.name;const price=document.createElement('strong');price.textContent=money(p.price);info.append(name,price);b.append(info);
   b.onclick=async()=>{b.disabled=true;try{await api('tabs/'+id+'/items','POST',{product_id:p.id});await reload();await loadTabs()}catch(e){alert(e.message)}finally{b.disabled=false}};
   productsBox.append(b);
  }
@@ -193,14 +194,35 @@ async function closeTab(id,customer){
  try{
   const items=await api('tabs/'+id);
   if(!items.length)return alert('Comanda sem produtos.');
+  checkoutTab=id;
   const total=items.reduce((n,i)=>n+i.price*i.quantity,0);
-  const details=items.map(i=>i.quantity+'× '+i.name+' — '+money(i.price*i.quantity)).join('\n');
-  if(!confirm('Fechar conta de '+customer+'?\n\n'+details+'\n\nTotal: '+money(total)))return;
-  const payment=prompt('Pagamento: Dinheiro, Pix ou Cartão','Dinheiro');
-  if(payment===null)return;
-  const method=['Dinheiro','Pix','Cartão'].find(x=>x.toLowerCase()===payment.trim().toLowerCase());
-  if(!method)return alert('Escolha Dinheiro, Pix ou Cartão.');
-  const result=await api('tabs/'+id+'/close','POST',{payment:method});
-  await refresh();await loadTabs();alert('Comanda fechada. Venda #'+result.id+' • '+money(result.total));
+  const root=$('tabCheckout');root.replaceChildren();root.hidden=false;
+  const heading=document.createElement('h3');heading.textContent='Pagamento — '+customer;
+  const summary=document.createElement('div');summary.className='tab-checkout-lines';
+  for(const item of items){const row=document.createElement('div');row.textContent=item.quantity+'× '+item.name+' — '+money(item.price*item.quantity);summary.append(row)}
+  const sum=document.createElement('strong');sum.textContent='Total: '+money(total);
+  const label=document.createElement('h4');label.textContent='Forma de pagamento';
+  const methods=document.createElement('div');methods.className='tab-payments';
+  const submit=document.createElement('button');submit.className='finish';submit.textContent='✓ FINALIZAR PAGAMENTO';
+  const cancel=document.createElement('button');cancel.textContent='Voltar para comanda';
+  let chosen='Dinheiro';
+  for(const method of ['Dinheiro','Pix','Débito','Crédito']){
+   const btn=document.createElement('button');btn.textContent=method;btn.className=method===chosen?'chosen':'';
+   btn.onclick=()=>{chosen=method;methods.querySelectorAll('button').forEach(b=>b.classList.toggle('chosen',b===btn))};
+   methods.append(btn);
+  }
+  cancel.onclick=()=>{root.hidden=true;checkoutTab=null};
+  submit.onclick=async()=>{
+   if(submit.disabled||checkoutTab!==id)return;
+   submit.disabled=true;
+   try{
+    const result=await api('tabs/'+id+'/close','POST',{payment:chosen});
+    root.hidden=true;checkoutTab=null;
+    await refresh();await loadTabs();
+    $('status').textContent='✓ Comanda de '+customer+' fechada • Venda #'+result.id+' • '+money(result.total);
+   }catch(e){alert(e.message)}finally{submit.disabled=false}
+  };
+  root.append(heading,summary,sum,label,methods,submit,cancel);
+  root.scrollIntoView({behavior:'smooth',block:'start'});
  }catch(e){alert(e.message)}
 }
