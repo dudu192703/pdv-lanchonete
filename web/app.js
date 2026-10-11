@@ -94,7 +94,7 @@ $('open').onclick=()=>{const amount=askAmount('Abertura');if(amount!==null)act('
 $('close').onclick=()=>{const amount=askAmount('Dinheiro contado no fechamento');if(amount!==null&&confirm('Confirmar fechamento?'))act('close',{amount})};
 async function movement(kind){const amount=askAmount(kind);if(amount===null)return;const note=prompt('Motivo:');if(note!==null)await act('movement',{kind,amount,note})}
 $('withdraw').onclick=()=>movement('Sangria');$('supply').onclick=()=>movement('Suprimento');
-document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=async()=>{document.querySelectorAll('[data-tab]').forEach(x=>x.classList.toggle('selected',x===b));document.querySelectorAll('.page').forEach(x=>x.classList.toggle('active',x.id===b.dataset.tab));if(b.dataset.tab==='estoque')await refreshInventory();if(b.dataset.tab==='vendas')await loadSales()});refresh();
+document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=async()=>{document.querySelectorAll('[data-tab]').forEach(x=>x.classList.toggle('selected',x===b));document.querySelectorAll('.page').forEach(x=>x.classList.toggle('active',x.id===b.dataset.tab));if(b.dataset.tab==='estoque')await refreshInventory();if(b.dataset.tab==='vendas')await loadSales();if(b.dataset.tab==='comandas')await loadTabs()});refresh();
 
 async function loadSales(){
  try{
@@ -147,3 +147,60 @@ $('salesSearch').onclick=async()=>{
   root.append(foot);
  }catch(e){root.textContent='Erro: '+e.message}
 };
+
+let activeTab=null;
+async function loadTabs(){
+ try{
+  const tabs=await api('tabs'),root=$('tabList');root.replaceChildren();
+  for(const tab of tabs){
+   const row=document.createElement('div');row.className='tab-row';
+   const open=document.createElement('button');open.textContent=tab.customer+' • '+money(tab.total);
+   open.onclick=()=>showTab(tab.id,tab.customer);
+   const close=document.createElement('button');close.textContent='Fechar conta';close.onclick=()=>closeTab(tab.id,tab.customer);
+   row.append(open,close);root.append(row);
+  }
+  if(!tabs.some(t=>t.id===activeTab)){$('tabDetail').replaceChildren();activeTab=null}
+ }catch(e){$('tabList').textContent=e.message}
+}
+$('tabForm').onsubmit=async e=>{
+ e.preventDefault();const name=$('customerName').value.trim();if(!name)return;
+ try{const tab=await api('tabs','POST',{customer:name});$('customerName').value='';await loadTabs();await showTab(tab.id,name)}catch(err){alert(err.message)}
+};
+async function showTab(id,customer){
+ activeTab=id;const root=$('tabDetail');root.replaceChildren();
+ const heading=document.createElement('h3');heading.textContent='Comanda de '+customer;
+ const lines=document.createElement('div');lines.className='tab-lines';
+ const productsBox=document.createElement('div');productsBox.className='tab-products';
+ root.append(heading,lines,productsBox);
+ async function reload(){
+  const items=await api('tabs/'+id);
+  lines.replaceChildren();
+  let total=0;
+  for(const item of items){
+   const row=document.createElement('div');row.textContent=item.quantity+'× '+item.name+' — '+money(item.price*item.quantity);
+   total+=item.price*item.quantity;lines.append(row);
+  }
+  const summary=document.createElement('strong');summary.textContent='Total: '+money(total);lines.append(summary);
+ }
+ try{await reload()}catch(e){lines.textContent=e.message}
+ for(const p of products){
+  const b=document.createElement('button');b.textContent=p.name+' • '+money(p.price);
+  b.onclick=async()=>{b.disabled=true;try{await api('tabs/'+id+'/items','POST',{product_id:p.id});await reload();await loadTabs()}catch(e){alert(e.message)}finally{b.disabled=false}};
+  productsBox.append(b);
+ }
+}
+async function closeTab(id,customer){
+ try{
+  const items=await api('tabs/'+id);
+  if(!items.length)return alert('Comanda sem produtos.');
+  const total=items.reduce((n,i)=>n+i.price*i.quantity,0);
+  const details=items.map(i=>i.quantity+'× '+i.name+' — '+money(i.price*i.quantity)).join('\n');
+  if(!confirm('Fechar conta de '+customer+'?\n\n'+details+'\n\nTotal: '+money(total)))return;
+  const payment=prompt('Pagamento: Dinheiro, Pix ou Cartão','Dinheiro');
+  if(payment===null)return;
+  const method=['Dinheiro','Pix','Cartão'].find(x=>x.toLowerCase()===payment.trim().toLowerCase());
+  if(!method)return alert('Escolha Dinheiro, Pix ou Cartão.');
+  const result=await api('tabs/'+id+'/close','POST',{payment:method});
+  await refresh();await loadTabs();alert('Comanda fechada. Venda #'+result.id+' • '+money(result.total));
+ }catch(e){alert(e.message)}
+}
