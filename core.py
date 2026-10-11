@@ -113,7 +113,7 @@ class Store:
                             (session['id'], kind, -amount if kind == 'Sangria' else amount, note.strip()))
 
     def sell(self, cart, payment):
-        if not cart or payment not in ('Dinheiro', 'Pix', 'Cartão'):
+        if not cart or payment not in ('Dinheiro', 'Pix', 'Cartão', 'Débito', 'Crédito'):
             raise ValueError('Adicione produtos e selecione o pagamento.')
         # Trava de escrita antes de conferir estoque, evitando vendas simultâneas
         # que poderiam utilizar as mesmas unidades.
@@ -195,7 +195,7 @@ class Store:
             raise
 
     def close_tab(self, tab_id, payment):
-        if payment not in ("Dinheiro","Pix","Cartão"):
+        if payment not in ("Dinheiro","Pix","Cartão","Débito","Crédito"):
             raise ValueError("Forma de pagamento inválida.")
         self.db.execute("BEGIN IMMEDIATE")
         try:
