@@ -7,6 +7,9 @@ import binascii
 import io
 import uuid
 import time
+import sys
+import json
+import hashlib
 from collections import defaultdict
 from PIL import Image, UnidentifiedImageError
 from fastapi import FastAPI, HTTPException, Depends, Request
@@ -15,12 +18,23 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from core import Store, cents, money
 
-BASE = Path(__file__).resolve().parent
-IMAGES = BASE / 'product_images'
+BASE = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
+DATA = Path(os.getenv("LOCALAPPDATA", str(Path.home()))) / "PDVLanchonete" if getattr(sys, "frozen", False) else Path(__file__).resolve().parent
+DATA.mkdir(parents=True, exist_ok=True)
+IMAGES = DATA / 'product_images'
 IMAGES.mkdir(exist_ok=True)
 PASSWORD = os.getenv("PDV_PASSWORD", "")
-if len(PASSWORD) < 10:
-    raise RuntimeError("Defina PDV_PASSWORD com pelo menos 10 caracteres antes de iniciar.")
+PASSWORD_FILE = DATA / "password.json"
+if not PASSWORD and not PASSWORD_FILE.exists():
+    raise RuntimeError("Defina PDV_PASSWORD ou configure a senha pelo aplicativo Windows.")
+
+def valid_password(value):
+    if PASSWORD:
+        return secrets.compare_digest(value, PASSWORD)
+    settings = json.loads(PASSWORD_FILE.read_text(encoding="utf-8"))
+    digest = hashlib.pbkdf2_hmac("sha256", value.encode("utf-8"),
+                                bytes.fromhex(settings["salt"]), 300_000)
+    return secrets.compare_digest(digest, bytes.fromhex(settings["hash"]))
 SESSIONS = {}
 FAILED = defaultdict(list)
 SESSION_SECONDS = 8 * 60 * 60
@@ -44,7 +58,7 @@ def auth(request: Request):
 
 def get_store():
     """Uma conexão SQLite independente por requisição, fechada após o uso."""
-    db = Store(BASE / "pdv.sqlite3")
+    db = Store(DATA / "pdv.sqlite3")
     try:
         yield db
     finally:
@@ -60,7 +74,7 @@ def login(data: LoginInput, request: Request, response: Response):
     FAILED[ip] = [t for t in FAILED[ip] if now - t < 900]
     if len(FAILED[ip]) >= 8:
         raise HTTPException(429, "Muitas tentativas. Aguarde 15 minutos.")
-    if not secrets.compare_digest(data.password, PASSWORD):
+    if not valid_password(data.password):
         FAILED[ip].append(now)
         raise HTTPException(401, "Senha incorreta.")
     FAILED.pop(ip, None)
