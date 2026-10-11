@@ -101,6 +101,9 @@ class ProductInput(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     price: str
 
+class PriceInput(BaseModel):
+    price: str
+
 class StockInput(BaseModel):
     quantity: int = Field(ge=0)
 
@@ -125,6 +128,14 @@ def state(s: Store = Depends(get_store)):
 def add_product(data: ProductInput, s: Store = Depends(get_store)):
     try:
         s.add_product(data.name, cents(data.price))
+        return {"ok": True}
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+
+@app.put("/api/products/{product_id}/price", dependencies=[Depends(auth)])
+def update_price(product_id: int, data: PriceInput, s: Store = Depends(get_store)):
+    try:
+        s.set_product_price(product_id, cents(data.price))
         return {"ok": True}
     except ValueError as exc:
         raise HTTPException(400, str(exc))
