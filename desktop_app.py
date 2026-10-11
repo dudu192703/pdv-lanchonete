@@ -62,7 +62,7 @@ def main():
             messagebox.showerror("PDV já aberto", "A porta 8000 já está ocupada. Feche o servidor anterior.")
             root.destroy()
             return
-    config = uvicorn.Config(app, host=host, port=port, log_level="warning", access_log=False)
+    config = uvicorn.Config(app, host=host, port=port, log_level="warning", access_log=False, log_config=None)
     server = uvicorn.Server(config)
     thread = threading.Thread(target=server.run, daemon=True)
     thread.start()
