@@ -55,7 +55,16 @@ function renderRegistered(){
     const name=document.createElement('span');name.textContent=p.name+' — '+money(p.price);
     const change=document.createElement('button');change.textContent='📷 Alterar foto';
     change.onclick=()=>{const input=document.createElement('input');input.type='file';input.accept='image/jpeg,image/png,image/webp';input.onchange=async()=>{if(input.files[0])await sendImage(p.id,input.files[0])};input.click()};
-    row.append(name,change);el.append(row);
+    const editPrice=document.createElement('button');editPrice.textContent='✏️ Alterar preço';
+    editPrice.onclick=async()=>{
+      const value=prompt('Novo preço de '+p.name+' (em reais):',(p.price/100).toFixed(2).replace('.',','));
+      if(value===null)return;
+      editPrice.disabled=true;
+      try{await api('products/'+p.id+'/price','PUT',{price:value});await refresh();if(activeTab!==null){const tab=(await api('tabs')).find(t=>t.id===activeTab);if(tab)await showTab(tab.id,tab.customer)}}
+      catch(e){alert('Não foi possível alterar o preço: '+e.message)}
+      finally{editPrice.disabled=false}
+    };
+    row.append(name,change,editPrice);el.append(row);
   }
 }
 async function sendImage(id,file){
