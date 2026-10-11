@@ -65,6 +65,14 @@ class Store:
             if cursor.rowcount != 1:
                 raise ValueError("Produto não encontrado.")
 
+    def set_product_price(self, product_id, price):
+        if type(price) is not int or price <= 0:
+            raise ValueError("Informe um preço maior que zero.")
+        with self.db:
+            updated = self.db.execute("UPDATE products SET price=? WHERE id=?", (price, product_id))
+            if updated.rowcount != 1:
+                raise ValueError("Produto não encontrado.")
+
     def set_stock(self, product_id, quantity):
         if type(quantity) is not int or quantity < 0:
             raise ValueError("Informe uma quantidade inteira maior ou igual a zero.")
