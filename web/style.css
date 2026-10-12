@@ -40,3 +40,5 @@
  #comandas h2{font-size:22px}
 }
 @media(max-width:380px){.tab-products{grid-template-columns:1fr}.tab-product{flex-direction:row}.tab-product img,.tab-product .placeholder{width:68px;min-width:68px;height:68px}}
+
+.sale-row{display:flex;align-items:center;gap:10px;border-bottom:1px solid #334454}.sale-row .sale-detail{flex:1;min-width:0;border-bottom:0}.sale-row>.danger{flex-shrink:0;padding:9px 12px;font-size:13px}
