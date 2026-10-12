@@ -236,6 +236,14 @@ def close_cash(data: MoneyInput, s: Store = Depends(get_store)):
     except ValueError as exc:
         raise HTTPException(400, str(exc))
 
+@app.delete("/api/sales/{sale_id}", dependencies=[Depends(auth)])
+def cancel_sale(sale_id: int, s: Store = Depends(get_store)):
+    try:
+        s.cancel_sale(sale_id)
+        return {"ok": True}
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+
 @app.get("/api/history", dependencies=[Depends(auth)])
 def history(date: str | None = None, s: Store = Depends(get_store)):
     from datetime import date as Date
@@ -244,7 +252,7 @@ def history(date: str | None = None, s: Store = Depends(get_store)):
             Date.fromisoformat(date)
         except ValueError:
             raise HTTPException(400, "Data inválida.")
-    where = "WHERE date(created)=?" if date else ""
+    where = "WHERE cancelled=0 AND date(created)=?" if date else "WHERE cancelled=0"
     sales = s.db.execute("SELECT id,created,payment,total FROM sales " + where + " ORDER BY id DESC" + ("" if date else " LIMIT 100"), (date,) if date else ()).fetchall()
     return [dict(row) for row in sales]
 
@@ -254,7 +262,7 @@ def inventory(s: Store = Depends(get_store)):
 
 @app.get("/api/sales/{sale_id}/items", dependencies=[Depends(auth)])
 def sale_items(sale_id: int, s: Store = Depends(get_store)):
-    if not s.db.execute("SELECT 1 FROM sales WHERE id=?", (sale_id,)).fetchone():
+    if not s.db.execute("SELECT 1 FROM sales WHERE id=? AND cancelled=0", (sale_id,)).fetchone():
         raise HTTPException(404, "Venda não encontrada.")
     rows = s.db.execute("SELECT name,price,quantity FROM items WHERE sale_id=? ORDER BY rowid", (sale_id,)).fetchall()
     return [dict(row) for row in rows]
@@ -269,7 +277,7 @@ def sales_summary(product_id: int | None = None, date: str | None = None, s: Sto
             raise HTTPException(400, "Data inválida.")
     if product_id is not None and not s.db.execute("SELECT 1 FROM products WHERE id=?", (product_id,)).fetchone():
         raise HTTPException(404, "Produto não encontrado.")
-    filters = []
+    filters = ["s.cancelled=0"]
     params = []
     if product_id is not None:
         filters.append("i.product_id=?")
