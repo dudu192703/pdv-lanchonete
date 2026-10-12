@@ -14,6 +14,7 @@ from collections import defaultdict
 from PIL import Image, UnidentifiedImageError
 from fastapi import FastAPI, HTTPException, Depends, Request
 from fastapi.responses import FileResponse, Response
+from fastapi import Query
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from core import Store, cents, money
@@ -267,31 +268,103 @@ def sale_items(sale_id: int, s: Store = Depends(get_store)):
     rows = s.db.execute("SELECT name,price,quantity FROM items WHERE sale_id=? ORDER BY rowid", (sale_id,)).fetchall()
     return [dict(row) for row in rows]
 
-@app.get("/api/sales-summary", dependencies=[Depends(auth)])
-def sales_summary(product_id: int | None = None, date: str | None = None, s: Store = Depends(get_store)):
+def filtered_sale_lines(s, product_ids=None, date=None):
     from datetime import date as Date
     if date:
         try:
             Date.fromisoformat(date)
         except ValueError:
             raise HTTPException(400, "Data inválida.")
-    if product_id is not None and not s.db.execute("SELECT 1 FROM products WHERE id=?", (product_id,)).fetchone():
-        raise HTTPException(404, "Produto não encontrado.")
     filters = ["s.cancelled=0"]
     params = []
-    if product_id is not None:
-        filters.append("i.product_id=?")
-        params.append(product_id)
+    if product_ids:
+        placeholders = ",".join("?" for _ in product_ids)
+        filters.append("i.product_id IN (" + placeholders + ")")
+        params.extend(product_ids)
     if date:
         filters.append("date(s.created)=?")
         params.append(date)
-    where = "WHERE " + " AND ".join(filters) if filters else ""
-    rows = s.db.execute(
-        "SELECT i.product_id, i.name, SUM(i.quantity) AS quantity, "
-        "SUM(i.quantity*i.price) AS total FROM items i JOIN sales s ON s.id=i.sale_id " + where +
-        " GROUP BY i.product_id, i.name ORDER BY quantity DESC, i.name", params
+    return s.db.execute(
+        "SELECT s.id AS sale_id,s.created,s.payment,i.product_id,i.name,i.price,i.quantity "
+        "FROM items i JOIN sales s ON s.id=i.sale_id WHERE " + " AND ".join(filters) +
+        " ORDER BY s.id DESC,i.rowid", params
     ).fetchall()
-    return [dict(row) for row in rows]
+
+@app.get("/api/sales-summary", dependencies=[Depends(auth)])
+def sales_summary(product_id: int | None = None, product_ids: list[int] | None = Query(None),
+                  date: str | None = None, s: Store = Depends(get_store)):
+    selected = list(product_ids or ([] if product_id is None else [product_id]))
+    lines = filtered_sale_lines(s, selected, date)
+    totals = {}
+    for line in lines:
+        key = (line["product_id"], line["name"])
+        entry = totals.setdefault(key, {"product_id": line["product_id"], "name": line["name"], "quantity": 0, "total": 0})
+        entry["quantity"] += line["quantity"]
+        entry["total"] += line["quantity"] * line["price"]
+    return sorted(totals.values(), key=lambda row: (-row["quantity"], row["name"]))
+
+@app.get("/api/sales-report.pdf", dependencies=[Depends(auth)])
+def sales_report_pdf(product_ids: list[int] | None = Query(None), date: str | None = None,
+                     s: Store = Depends(get_store)):
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Table, TableStyle, Spacer, KeepTogether
+    from reportlab.lib import colors
+    from reportlab.lib.styles import getSampleStyleSheet
+    from reportlab.lib.enums import TA_RIGHT
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.styles import ParagraphStyle
+    from xml.sax.saxutils import escape
+    lines = filtered_sale_lines(s, product_ids, date)
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=A4, rightMargin=35, leftMargin=35, topMargin=38, bottomMargin=38)
+    styles = getSampleStyleSheet()
+    normal = styles["Normal"]
+    normal.fontSize = 9
+    normal.leading = 13
+    story = [Paragraph("Relatório de vendas", styles["Title"]),
+             Paragraph("Data: " + escape(date or "Todos os dias"), normal), Spacer(1, 12)]
+    summary = {}
+    for line in lines:
+        key = (line["product_id"], line["name"])
+        record = summary.setdefault(key, [line["name"], 0, 0])
+        record[1] += line["quantity"]
+        record[2] += line["quantity"] * line["price"]
+    story.append(Paragraph("Resumo dos produtos selecionados", styles["Heading2"]))
+    def cell(value):
+        return Paragraph(escape(str(value)), normal)
+    table_rows = [[cell("Produto"), cell("Qtd."), cell("Valor")]]
+    for name, quantity, total in sorted(summary.values(), key=lambda x: x[0]):
+        table_rows.append([cell(name), cell(quantity), cell(money(total))])
+    if len(table_rows) == 1:
+        table_rows.append([cell("Nenhuma venda encontrada"), cell(""), cell("")])
+    summary_table = Table(table_rows, colWidths=[310, 55, 115], repeatRows=1, hAlign="LEFT")
+    summary_table.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#eeeeee")),
+                                       ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                                       ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+                                       ("LINEBELOW", (0, 0), (-1, 0), 0.7, colors.grey)]))
+    story.extend([summary_table, Spacer(1, 12),
+                  Paragraph("Total: " + str(sum(v[1] for v in summary.values())) +
+                            " unidade(s) - " + money(sum(v[2] for v in summary.values())), styles["Heading3"]),
+                  Spacer(1, 10), Paragraph("Detalhamento das vendas", styles["Heading2"])])
+    by_sale = {}
+    for line in lines:
+        by_sale.setdefault(line["sale_id"], []).append(line)
+    for sale_id, items in by_sale.items():
+        first = items[0]
+        parts = [Paragraph("Venda #" + str(sale_id) + " - " + escape(first["created"]) +
+                           " - " + escape(first["payment"]), styles["Heading3"])]
+        for item in items:
+            parts.append(Paragraph(str(item["quantity"]) + " x " + escape(item["name"]) +
+                                   " - " + money(item["quantity"] * item["price"]), normal))
+        parts.append(Paragraph("Subtotal selecionado: " +
+                               money(sum(x["quantity"] * x["price"] for x in items)), normal))
+        parts.append(Spacer(1, 9))
+        story.append(KeepTogether(parts))
+    if not by_sale:
+        story.append(Paragraph("Nenhuma venda encontrada.", normal))
+    doc.build(story)
+    return Response(buf.getvalue(), media_type="application/pdf",
+                    headers={"Content-Disposition": 'attachment; filename="relatorio-vendas.pdf"',
+                             "Cache-Control": "no-store"})
 
 class TabInput(BaseModel):
     customer: str = Field(min_length=1, max_length=120)
