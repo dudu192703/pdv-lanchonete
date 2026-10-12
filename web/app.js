@@ -120,12 +120,14 @@ document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=async()=>{document.
 
 async function loadSales(){
  try{
-  const rows=await api('history');
+  const date=$('salesDate').value;
+  const rows=await api('history'+(date?'?date='+encodeURIComponent(date):''));
   const select=$('salesProduct'),chosen=select.value;
   select.replaceChildren(new Option('Todos os produtos',''));
   for(const p of products)select.add(new Option(p.name,p.id));
   select.value=chosen;
   const root=$('history');root.replaceChildren();
+  if(!rows.length)root.textContent='Nenhuma venda encontrada para este período.';
   for(const sale of rows){
    const detail=document.createElement('details');detail.className='sale-detail';
    const head=document.createElement('summary');
@@ -151,11 +153,18 @@ async function loadSales(){
   }
  }catch(e){$('history').textContent='Erro ao carregar vendas: '+e.message}
 }
+async function salesSummaryRows(){
+ const id=$('salesProduct').value,date=$('salesDate').value;
+ const params=new URLSearchParams();
+ if(id)params.set('product_id',id);
+ if(date)params.set('date',date);
+ return api('sales-summary'+(params.size?'?'+params.toString():''));
+}
 $('salesSearch').onclick=async()=>{
- const id=$('salesProduct').value;
  const root=$('salesSummary');root.textContent='Buscando...';
  try{
-  const rows=await api('sales-summary'+(id?'?product_id='+encodeURIComponent(id):''));
+  await loadSales();
+  const rows=await salesSummaryRows();
   root.replaceChildren();
   let qty=0,total=0;
   for(const p of rows){
@@ -168,6 +177,23 @@ $('salesSearch').onclick=async()=>{
   foot.textContent='Total: '+qty+' unidade(s) • '+money(total);
   root.append(foot);
  }catch(e){root.textContent='Erro: '+e.message}
+};
+$('salesPdf').onclick=async()=>{
+ const button=$('salesPdf');button.disabled=true;
+ try{
+  const date=$('salesDate').value,product=$('salesProduct').selectedOptions[0]?.textContent||'Todos os produtos';
+  const rows=await salesSummaryRows();
+  const sales=await api('history'+(date?'?date='+encodeURIComponent(date):''));
+  const total=rows.reduce((n,r)=>n+r.total,0),qty=rows.reduce((n,r)=>n+r.quantity,0);
+  const escapeHtml=value=>String(value).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const table=rows.map(p=>'<tr><td>'+escapeHtml(p.name)+'</td><td>'+p.quantity+'</td><td>'+money(p.total)+'</td></tr>').join('');
+  const salesTable=sales.map(x=>'<tr><td>#'+x.id+'</td><td>'+escapeHtml(x.created)+'</td><td>'+escapeHtml(x.payment)+'</td><td>'+money(x.total)+'</td></tr>').join('');
+  const html='<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Relatório de vendas</title><style>body{font:14px Arial;margin:32px;color:#111}table{width:100%;border-collapse:collapse;margin:15px 0 24px}th,td{padding:8px;border-bottom:1px solid #ddd;text-align:left}h1{font-size:24px}h2{font-size:18px}@page{size:A4;margin:15mm}</style></head><body><h1>Relatório de vendas</h1><p>Data: '+escapeHtml(date||'Todos os dias')+' | Produto: '+escapeHtml(product)+'</p><h2>Resumo por produto</h2><table><tr><th>Produto</th><th>Quantidade</th><th>Valor</th></tr>'+table+'</table><strong>Total: '+qty+' unidade(s) • '+money(total)+'</strong><h2>Pedidos do período</h2><table><tr><th>Pedido</th><th>Data</th><th>Pagamento</th><th>Total</th></tr>'+salesTable+'</table></body></html>';
+  const win=window.open('','_blank');
+  if(!win)throw Error('Permita janelas pop-up para exportar o PDF.');
+  win.document.open();win.document.write(html);win.document.close();win.focus();win.print();
+ }catch(e){alert('Não foi possível exportar: '+e.message)}
+ finally{button.disabled=false}
 };
 
 let activeTab=null;
