@@ -149,7 +149,20 @@ async function loadSales(){
      detail.dataset.loaded='1';
     }catch(e){content.textContent='Erro: '+e.message}
    });
-   root.append(detail);
+   const wrapper=document.createElement('div');wrapper.className='sale-row';
+   const remove=document.createElement('button');remove.className='danger';remove.textContent='🗑️ Excluir';remove.title='Cancelar venda e devolver estoque';
+   remove.onclick=async()=>{
+    if(!confirm('Cancelar a venda #'+sale.id+'? Os produtos voltarão ao estoque e ela sairá dos relatórios.'))return;
+    remove.disabled=true;
+    try{
+      await api('sales/'+sale.id,'DELETE');
+      await refresh();
+      await loadSales();
+      $('salesSearch').click();
+      $('status').textContent='Venda #'+sale.id+' cancelada. Estoque devolvido.';
+    }catch(e){alert('Não foi possível cancelar: '+e.message);remove.disabled=false}
+   };
+   wrapper.append(detail,remove);root.append(wrapper);
   }
  }catch(e){$('history').textContent='Erro ao carregar vendas: '+e.message}
 }
