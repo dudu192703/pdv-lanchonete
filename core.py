@@ -61,7 +61,34 @@ class Store:
         if "active" not in columns:
             with self.db:
                 self.db.execute("ALTER TABLE products ADD COLUMN active INTEGER NOT NULL DEFAULT 1")
+        sale_columns = {row["name"] for row in self.db.execute("PRAGMA table_info(sales)")}
+        if "cancelled" not in sale_columns:
+            with self.db:
+                self.db.execute("ALTER TABLE sales ADD COLUMN cancelled INTEGER NOT NULL DEFAULT 0")
         self.db.execute("PRAGMA busy_timeout = 5000")
+
+    def cancel_sale(self, sale_id):
+        self.db.execute("BEGIN IMMEDIATE")
+        try:
+            sale = self.db.execute(
+                "SELECT s.id, s.cancelled, se.closed FROM sales s "
+                "JOIN sessions se ON se.id=s.session_id WHERE s.id=?", (sale_id,)
+            ).fetchone()
+            if not sale or sale["cancelled"]:
+                raise ValueError("Venda não encontrada ou já cancelada.")
+            if sale["closed"] is not None:
+                raise ValueError("Esta venda pertence a um caixa fechado. Não é possível cancelá-la.")
+            lines = self.db.execute(
+                "SELECT product_id, quantity FROM items WHERE sale_id=?", (sale_id,)
+            ).fetchall()
+            for line in lines:
+                self.db.execute("UPDATE products SET stock=stock+? WHERE id=?",
+                                (line["quantity"], line["product_id"]))
+            self.db.execute("UPDATE sales SET cancelled=1 WHERE id=?", (sale_id,))
+            self.db.commit()
+        except BaseException:
+            self.db.rollback()
+            raise
 
     def set_product_image(self, product_id, filename):
         with self.db:
@@ -130,7 +157,7 @@ class Store:
 
     def balance(self, session):
         moves = self.db.execute('SELECT COALESCE(SUM(amount),0) FROM movements WHERE session_id=?', (session['id'],)).fetchone()[0]
-        cash = self.db.execute("SELECT COALESCE(SUM(total),0) FROM sales WHERE session_id=? AND payment='Dinheiro'", (session['id'],)).fetchone()[0]
+        cash = self.db.execute("SELECT COALESCE(SUM(total),0) FROM sales WHERE session_id=? AND payment='Dinheiro' AND cancelled=0", (session['id'],)).fetchone()[0]
         return session['initial'] + moves + cash
 
     def add_product(self, name, price):
