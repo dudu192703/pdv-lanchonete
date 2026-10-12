@@ -64,7 +64,20 @@ function renderRegistered(){
       catch(e){alert('Não foi possível alterar o preço: '+e.message)}
       finally{editPrice.disabled=false}
     };
-    row.append(name,change,editPrice);el.append(row);
+    const editName=document.createElement('button');editName.textContent='✏️ Alterar nome';
+    editName.onclick=async()=>{
+      const value=prompt('Novo nome do produto:',p.name);
+      if(value===null)return;
+      try{await api('products/'+p.id+'/name','PUT',{name:value});await refresh()}
+      catch(e){alert(e.message)}
+    };
+    const remove=document.createElement('button');remove.textContent='🗑️ Excluir produto';remove.className='danger';
+    remove.onclick=async()=>{
+      if(!confirm('Excluir '+p.name+' do cadastro? O histórico de vendas será preservado.'))return;
+      try{await api('products/'+p.id,'DELETE');delete cart[p.id];await refresh();await loadTabs()}
+      catch(e){alert(e.message)}
+    };
+    row.append(name,change,editPrice,editName,remove);el.append(row);
   }
 }
 async function sendImage(id,file){
@@ -187,8 +200,11 @@ async function showTab(id,customer){
   lines.replaceChildren();
   let total=0;
   for(const item of items){
-   const row=document.createElement('div');row.textContent=item.quantity+'× '+item.name+' — '+money(item.price*item.quantity);
-   total+=item.price*item.quantity;lines.append(row);
+   const row=document.createElement('div');row.className='tab-item-line';
+   const label=document.createElement('span');label.textContent=item.quantity+'× '+item.name+' — '+money(item.price*item.quantity);
+   const remove=document.createElement('button');remove.textContent='✕';remove.className='danger';remove.title='Retirar uma unidade';
+   remove.onclick=async()=>{remove.disabled=true;try{await api('tabs/'+id+'/items/'+item.product_id,'DELETE');await reload();await loadTabs()}catch(e){alert(e.message);remove.disabled=false}};
+   row.append(label,remove);total+=item.price*item.quantity;lines.append(row);
   }
   const summary=document.createElement('strong');summary.textContent='Total: '+money(total);lines.append(summary);
  }
