@@ -101,6 +101,9 @@ class ProductInput(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     price: str
 
+class NameInput(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+
 class PriceInput(BaseModel):
     price: str
 
@@ -128,6 +131,22 @@ def state(s: Store = Depends(get_store)):
 def add_product(data: ProductInput, s: Store = Depends(get_store)):
     try:
         s.add_product(data.name, cents(data.price))
+        return {"ok": True}
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+
+@app.put("/api/products/{product_id}/name", dependencies=[Depends(auth)])
+def update_product_name(product_id: int, data: NameInput, s: Store = Depends(get_store)):
+    try:
+        s.rename_product(product_id, data.name)
+        return {"ok": True}
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+
+@app.delete("/api/products/{product_id}", dependencies=[Depends(auth)])
+def delete_product(product_id: int, s: Store = Depends(get_store)):
+    try:
+        s.delete_product(product_id)
         return {"ok": True}
     except ValueError as exc:
         raise HTTPException(400, str(exc))
@@ -218,8 +237,15 @@ def close_cash(data: MoneyInput, s: Store = Depends(get_store)):
         raise HTTPException(400, str(exc))
 
 @app.get("/api/history", dependencies=[Depends(auth)])
-def history(s: Store = Depends(get_store)):
-    sales = s.db.execute("SELECT id,created,payment,total FROM sales ORDER BY id DESC LIMIT 100").fetchall()
+def history(date: str | None = None, s: Store = Depends(get_store)):
+    from datetime import date as Date
+    if date:
+        try:
+            Date.fromisoformat(date)
+        except ValueError:
+            raise HTTPException(400, "Data inválida.")
+    where = "WHERE date(created)=?" if date else ""
+    sales = s.db.execute("SELECT id,created,payment,total FROM sales " + where + " ORDER BY id DESC" + ("" if date else " LIMIT 100"), (date,) if date else ()).fetchall()
     return [dict(row) for row in sales]
 
 @app.get("/api/inventory", dependencies=[Depends(auth)])
@@ -234,14 +260,27 @@ def sale_items(sale_id: int, s: Store = Depends(get_store)):
     return [dict(row) for row in rows]
 
 @app.get("/api/sales-summary", dependencies=[Depends(auth)])
-def sales_summary(product_id: int | None = None, s: Store = Depends(get_store)):
+def sales_summary(product_id: int | None = None, date: str | None = None, s: Store = Depends(get_store)):
+    from datetime import date as Date
+    if date:
+        try:
+            Date.fromisoformat(date)
+        except ValueError:
+            raise HTTPException(400, "Data inválida.")
     if product_id is not None and not s.db.execute("SELECT 1 FROM products WHERE id=?", (product_id,)).fetchone():
         raise HTTPException(404, "Produto não encontrado.")
-    where = "WHERE i.product_id=?" if product_id is not None else ""
-    params = (product_id,) if product_id is not None else ()
+    filters = []
+    params = []
+    if product_id is not None:
+        filters.append("i.product_id=?")
+        params.append(product_id)
+    if date:
+        filters.append("date(s.created)=?")
+        params.append(date)
+    where = "WHERE " + " AND ".join(filters) if filters else ""
     rows = s.db.execute(
         "SELECT i.product_id, i.name, SUM(i.quantity) AS quantity, "
-        "SUM(i.quantity*i.price) AS total FROM items i " + where +
+        "SUM(i.quantity*i.price) AS total FROM items i JOIN sales s ON s.id=i.sale_id " + where +
         " GROUP BY i.product_id, i.name ORDER BY quantity DESC, i.name", params
     ).fetchall()
     return [dict(row) for row in rows]
@@ -277,6 +316,14 @@ def get_tab(tab_id: int, s: Store = Depends(get_store)):
 def add_to_tab(tab_id: int, data: TabItemInput, s: Store = Depends(get_store)):
     try:
         s.add_tab_item(tab_id, data.product_id)
+        return {"ok": True}
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+
+@app.delete("/api/tabs/{tab_id}/items/{product_id}", dependencies=[Depends(auth)])
+def remove_from_tab(tab_id: int, product_id: int, s: Store = Depends(get_store)):
+    try:
+        s.remove_tab_item(tab_id, product_id)
         return {"ok": True}
     except ValueError as exc:
         raise HTTPException(400, str(exc))
