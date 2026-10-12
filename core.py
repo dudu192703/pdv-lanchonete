@@ -57,6 +57,10 @@ class Store:
                 name TEXT NOT NULL, price INTEGER NOT NULL, quantity INTEGER NOT NULL,
                 PRIMARY KEY(tab_id, product_id));
         """)
+        columns = {row["name"] for row in self.db.execute("PRAGMA table_info(products)")}
+        if "active" not in columns:
+            with self.db:
+                self.db.execute("ALTER TABLE products ADD COLUMN active INTEGER NOT NULL DEFAULT 1")
         self.db.execute("PRAGMA busy_timeout = 5000")
 
     def set_product_image(self, product_id, filename):
@@ -64,6 +68,40 @@ class Store:
             cursor = self.db.execute("UPDATE products SET image=? WHERE id=?", (filename, product_id))
             if cursor.rowcount != 1:
                 raise ValueError("Produto não encontrado.")
+
+    def rename_product(self, product_id, name):
+        name = name.strip()
+        if not name or len(name) > 120:
+            raise ValueError("Informe um nome com até 120 caracteres.")
+        with self.db:
+            result = self.db.execute("UPDATE products SET name=? WHERE id=? AND active=1", (name, product_id))
+            if result.rowcount != 1:
+                raise ValueError("Produto não encontrado.")
+
+    def delete_product(self, product_id):
+        # Exclusão lógica mantém integridade e histórico das vendas.
+        with self.db:
+            result = self.db.execute("UPDATE products SET active=0 WHERE id=? AND active=1", (product_id,))
+            if result.rowcount != 1:
+                raise ValueError("Produto não encontrado.")
+            self.db.execute("DELETE FROM tab_items WHERE product_id=?", (product_id,))
+
+    def remove_tab_item(self, tab_id, product_id):
+        self.db.execute("BEGIN IMMEDIATE")
+        try:
+            if not self.db.execute("SELECT 1 FROM tabs WHERE id=? AND closed IS NULL", (tab_id,)).fetchone():
+                raise ValueError("Comanda não encontrada ou já fechada.")
+            item = self.db.execute("SELECT quantity FROM tab_items WHERE tab_id=? AND product_id=?", (tab_id, product_id)).fetchone()
+            if not item:
+                raise ValueError("Produto não está na comanda.")
+            if item["quantity"] == 1:
+                self.db.execute("DELETE FROM tab_items WHERE tab_id=? AND product_id=?", (tab_id, product_id))
+            else:
+                self.db.execute("UPDATE tab_items SET quantity=quantity-1 WHERE tab_id=? AND product_id=?", (tab_id, product_id))
+            self.db.commit()
+        except BaseException:
+            self.db.rollback()
+            raise
 
     def set_product_price(self, product_id, price):
         if type(price) is not int or price <= 0:
@@ -102,7 +140,7 @@ class Store:
             self.db.execute('INSERT INTO products(name,price) VALUES (?,?)', (name.strip(), price))
 
     def products(self):
-        return self.db.execute('SELECT * FROM products ORDER BY name').fetchall()
+        return self.db.execute('SELECT * FROM products WHERE active=1 ORDER BY name').fetchall()
 
     def open(self, initial):
         if initial < 0 or self.session():
@@ -131,7 +169,7 @@ class Store:
             lines = []
             for product_id, quantity in cart.items():
                 product = self.db.execute('SELECT * FROM products WHERE id=?', (product_id,)).fetchone()
-                if not product or type(quantity) is not int or quantity <= 0:
+                if not product or not product['active'] or type(quantity) is not int or quantity <= 0:
                     raise ValueError('Produto ou quantidade inválida.')
                 reserved = self.db.execute(
                     "SELECT COALESCE(SUM(quantity),0) FROM tab_items WHERE product_id=?",
@@ -187,7 +225,7 @@ class Store:
         try:
             tab = self.db.execute("SELECT id FROM tabs WHERE id=? AND closed IS NULL", (tab_id,)).fetchone()
             product = self.db.execute("SELECT * FROM products WHERE id=?", (product_id,)).fetchone()
-            if not tab or not product:
+            if not tab or not product or not product["active"]:
                 raise ValueError("Comanda ou produto inválido.")
             reserved = self.db.execute(
                 "SELECT COALESCE(SUM(quantity),0) FROM tab_items WHERE product_id=?", (product_id,)).fetchone()[0]
