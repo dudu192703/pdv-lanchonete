@@ -409,6 +409,64 @@ def remove_from_tab(tab_id: int, product_id: int, s: Store = Depends(get_store))
     except ValueError as exc:
         raise HTTPException(400, str(exc))
 
+
+def print_kitchen_raw(content: str):
+    """Envia ESC/POS diretamente para a fila de impressao do Windows."""
+    if os.name != "nt":
+        raise RuntimeError("A impressora da cozinha requer Windows.")
+    import ctypes
+    from ctypes import wintypes
+    printer_name = os.getenv("PDV_KITCHEN_PRINTER", "").strip()
+    if not printer_name:
+        raise RuntimeError("Configure PDV_KITCHEN_PRINTER com o nome da impressora no Windows.")
+    winspool = ctypes.WinDLL("winspool.drv", use_last_error=True)
+    class DOC_INFO_1(ctypes.Structure):
+        _fields_ = [("pDocName", wintypes.LPWSTR), ("pOutputFile", wintypes.LPWSTR),
+                    ("pDatatype", wintypes.LPWSTR)]
+    winspool.OpenPrinterW.argtypes = [wintypes.LPWSTR, ctypes.POINTER(wintypes.HANDLE), ctypes.c_void_p]
+    winspool.OpenPrinterW.restype = wintypes.BOOL
+    winspool.StartDocPrinterW.argtypes = [wintypes.HANDLE, wintypes.DWORD, ctypes.POINTER(DOC_INFO_1)]
+    winspool.StartDocPrinterW.restype = wintypes.DWORD
+    winspool.StartPagePrinter.argtypes = [wintypes.HANDLE]
+    winspool.StartPagePrinter.restype = wintypes.BOOL
+    winspool.WritePrinter.argtypes = [wintypes.HANDLE, ctypes.c_void_p, wintypes.DWORD, ctypes.POINTER(wintypes.DWORD)]
+    winspool.WritePrinter.restype = wintypes.BOOL
+    winspool.EndPagePrinter.argtypes = [wintypes.HANDLE]
+    winspool.EndDocPrinter.argtypes = [wintypes.HANDLE]
+    winspool.ClosePrinter.argtypes = [wintypes.HANDLE]
+    handle = wintypes.HANDLE()
+    if not winspool.OpenPrinterW(printer_name, ctypes.byref(handle), None):
+        raise OSError(ctypes.get_last_error(), "Impressora da cozinha não encontrada: " + printer_name)
+    try:
+        info = DOC_INFO_1("Pedido da cozinha", None, "RAW")
+        if not winspool.StartDocPrinterW(handle, 1, ctypes.byref(info)):
+            raise OSError(ctypes.get_last_error(), "Falha ao iniciar impressão")
+        try:
+            if not winspool.StartPagePrinter(handle):
+                raise OSError(ctypes.get_last_error(), "Falha ao iniciar página")
+            try:
+                # CP850 suporta caracteres portugueses na maioria das impressoras ESC/POS.
+                data = b"\\x1b@" + b"\\x1bt\\x02" + content.encode("cp850", errors="replace") + b"\\n\\n\\n"
+                buffer = ctypes.create_string_buffer(data)
+                written = wintypes.DWORD()
+                if not winspool.WritePrinter(handle, buffer, len(data), ctypes.byref(written)) or written.value != len(data):
+                    raise OSError(ctypes.get_last_error(), "Falha ao enviar pedido à impressora")
+            finally:
+                winspool.EndPagePrinter(handle)
+        finally:
+            winspool.EndDocPrinter(handle)
+    finally:
+        winspool.ClosePrinter(handle)
+
+@app.post("/api/tabs/{tab_id}/kitchen", dependencies=[Depends(auth)])
+def send_tab_to_kitchen(tab_id: int, s: Store = Depends(get_store)):
+    try:
+        return s.send_kitchen(tab_id, print_kitchen_raw)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    except (OSError, RuntimeError) as exc:
+        raise HTTPException(503, "Impressão não concluída: " + str(exc))
+
 @app.post("/api/tabs/{tab_id}/close", dependencies=[Depends(auth)])
 def finish_tab(tab_id: int, data: TabCloseInput, s: Store = Depends(get_store)):
     try:
