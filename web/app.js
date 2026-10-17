@@ -116,7 +116,7 @@ $('open').onclick=()=>{const amount=askAmount('Abertura');if(amount!==null)act('
 $('close').onclick=()=>{const amount=askAmount('Dinheiro contado no fechamento');if(amount!==null&&confirm('Confirmar fechamento?'))act('close',{amount})};
 async function movement(kind){const amount=askAmount(kind);if(amount===null)return;const note=prompt('Motivo:');if(note!==null)await act('movement',{kind,amount,note})}
 $('withdraw').onclick=()=>movement('Sangria');$('supply').onclick=()=>movement('Suprimento');
-document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=async()=>{document.querySelectorAll('[data-tab]').forEach(x=>x.classList.toggle('selected',x===b));document.querySelectorAll('.page').forEach(x=>x.classList.toggle('active',x.id===b.dataset.tab));if(b.dataset.tab==='estoque')await refreshInventory();if(b.dataset.tab==='vendas')await loadSales();if(b.dataset.tab==='comandas')await loadTabs()});refresh();
+document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=async()=>{document.querySelectorAll('[data-tab]').forEach(x=>x.classList.toggle('selected',x===b));document.querySelectorAll('.page').forEach(x=>x.classList.toggle('active',x.id===b.dataset.tab));if(b.dataset.tab==='estoque')await refreshInventory();if(b.dataset.tab==='vendas')await loadSales();if(b.dataset.tab==='comandas')await loadTabs();if(b.dataset.tab==='configuracoes')await loadPrinterSettings()});refresh();
 
 const selectedSalesProducts=new Set();
 let salesAllProducts=true;
@@ -317,3 +317,28 @@ async function closeTab(id,customer){
   root.scrollIntoView({behavior:'smooth',block:'start'});
  }catch(e){alert(e.message)}
 }
+
+async function loadPrinterSettings(){
+ const select=$('kitchenPrinter'),status=$('printerStatus');
+ status.textContent='Buscando impressoras instaladas no computador do PDV...';
+ try{
+  const data=await api('settings/printers');
+  select.replaceChildren(new Option('Selecione uma impressora',''));
+  for(const name of data.printers)select.add(new Option(name,name));
+  select.value=data.selected||'';
+  status.textContent=data.printers.length
+   ?(data.selected?'Impressora salva: '+data.selected:'Escolha uma impressora e clique em Salvar.')
+   :'Nenhuma impressora encontrada. Instale a impressora no Windows e atualize a lista.';
+ }catch(e){status.textContent='Erro ao buscar impressoras: '+e.message}
+}
+$('printerRefresh').onclick=loadPrinterSettings;
+$('printerSave').onclick=async()=>{
+ const button=$('printerSave'),name=$('kitchenPrinter').value;
+ if(!name)return alert('Selecione uma impressora.');
+ button.disabled=true;
+ try{
+  await api('settings/printers','PUT',{printer:name});
+  $('printerStatus').textContent='✓ Impressora da cozinha salva: '+name+'. Os próximos pedidos serão enviados para ela.';
+ }catch(e){$('printerStatus').textContent='Erro ao salvar: '+e.message}
+ finally{button.disabled=false}
+};
