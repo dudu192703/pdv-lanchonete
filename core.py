@@ -66,6 +66,14 @@ class Store:
             with self.db:
                 self.db.execute("ALTER TABLE sales ADD COLUMN cancelled INTEGER NOT NULL DEFAULT 0")
         self.db.execute("PRAGMA busy_timeout = 5000")
+        tab_columns = {row["name"] for row in self.db.execute("PRAGMA table_info(tab_items)")}
+        if "sent_quantity" not in tab_columns:
+            with self.db:
+                self.db.execute("ALTER TABLE tab_items ADD COLUMN sent_quantity INTEGER NOT NULL DEFAULT 0")
+        self.db.execute("""CREATE TABLE IF NOT EXISTS kitchen_prints (
+            id INTEGER PRIMARY KEY, tab_id INTEGER NOT NULL REFERENCES tabs(id),
+            created TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, content TEXT NOT NULL)""")
+
 
     def cancel_sale(self, sale_id):
         self.db.execute("BEGIN IMMEDIATE")
@@ -121,6 +129,10 @@ class Store:
             item = self.db.execute("SELECT quantity FROM tab_items WHERE tab_id=? AND product_id=?", (tab_id, product_id)).fetchone()
             if not item:
                 raise ValueError("Produto não está na comanda.")
+            if item["quantity"] <= self.db.execute(
+                "SELECT sent_quantity FROM tab_items WHERE tab_id=? AND product_id=?",
+                (tab_id, product_id)).fetchone()[0]:
+                raise ValueError("Este item já foi enviado à cozinha. Não é possível removê-lo pela comanda.")
             if item["quantity"] == 1:
                 self.db.execute("DELETE FROM tab_items WHERE tab_id=? AND product_id=?", (tab_id, product_id))
             else:
@@ -245,7 +257,7 @@ class Store:
         if not self.db.execute("SELECT 1 FROM tabs WHERE id=? AND closed IS NULL", (tab_id,)).fetchone():
             raise ValueError("Comanda não encontrada ou já fechada.")
         return [dict(r) for r in self.db.execute(
-            "SELECT product_id,name,price,quantity FROM tab_items WHERE tab_id=? ORDER BY name", (tab_id,))]
+            "SELECT product_id,name,price,quantity,sent_quantity FROM tab_items WHERE tab_id=? ORDER BY name", (tab_id,))]
 
     def add_tab_item(self, tab_id, product_id):
         self.db.execute("BEGIN IMMEDIATE")
@@ -263,6 +275,41 @@ class Store:
                 "ON CONFLICT(tab_id,product_id) DO UPDATE SET quantity=quantity+1",
                 (tab_id,product_id,product["name"],product["price"]))
             self.db.commit()
+        except BaseException:
+            self.db.rollback()
+            raise
+
+    def send_kitchen(self, tab_id, printer):
+        # Serializa o envio e o registro para impedir pedidos duplicados.
+        self.db.execute("BEGIN IMMEDIATE")
+        try:
+            tab = self.db.execute(
+                "SELECT customer FROM tabs WHERE id=? AND closed IS NULL", (tab_id,)).fetchone()
+            if not tab:
+                raise ValueError("Comanda não encontrada ou já fechada.")
+            items = self.db.execute(
+                "SELECT product_id,name,quantity,sent_quantity FROM tab_items WHERE tab_id=? "
+                "AND quantity>sent_quantity ORDER BY name", (tab_id,)).fetchall()
+            if not items:
+                raise ValueError("Não há novos produtos para enviar à cozinha.")
+            from datetime import datetime
+            now = datetime.now().strftime("%d/%m/%Y %H:%M")
+            text = ("PISCIBAR DO JOAO\nPEDIDO - COZINHA\n"
+                    + "-" * 32 + "\nCOMANDA #" + str(tab_id) + "\n"
+                    + "Cliente: " + tab["customer"] + "\n" + now + "\n"
+                    + "-" * 32 + "\n")
+            for item in items:
+                text += str(item["quantity"] - item["sent_quantity"]) + "x " + item["name"] + "\n"
+            text += "-" * 32 + "\nPREPARAR PEDIDO\n\n\n"
+            printer(text)
+            for item in items:
+                self.db.execute(
+                    "UPDATE tab_items SET sent_quantity=quantity WHERE tab_id=? AND product_id=?",
+                    (tab_id, item["product_id"]))
+            self.db.execute(
+                "INSERT INTO kitchen_prints(tab_id,content) VALUES (?,?)", (tab_id,text))
+            self.db.commit()
+            return {"items": sum(x["quantity"] - x["sent_quantity"] for x in items)}
         except BaseException:
             self.db.rollback()
             raise
