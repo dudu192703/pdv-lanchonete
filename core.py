@@ -66,6 +66,7 @@ class Store:
             with self.db:
                 self.db.execute("ALTER TABLE sales ADD COLUMN cancelled INTEGER NOT NULL DEFAULT 0")
         self.db.execute("PRAGMA busy_timeout = 5000")
+        self.db.execute("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
         tab_columns = {row["name"] for row in self.db.execute("PRAGMA table_info(tab_items)")}
         if "sent_quantity" not in tab_columns:
             with self.db:
