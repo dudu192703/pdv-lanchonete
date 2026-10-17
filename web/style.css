@@ -48,3 +48,5 @@
 .kitchen-send{background:#d18b17;color:#10161c}.tab-row{flex-wrap:wrap}.tab-row .kitchen-send{flex:0 1 auto}.tab-item-line small{color:#a4c7d6}@media(max-width:650px){.tab-row{grid-template-columns:minmax(0,1fr) auto}.tab-row .kitchen-send{grid-column:1 / -1;grid-row:2}}
 
 .printer-settings{display:flex;gap:10px;align-items:center;flex-wrap:wrap}.printer-settings select{background:#172532;color:#fff;border:1px solid #334454;padding:13px;border-radius:9px;min-width:220px;max-width:100%}.printer-settings #printerSave{background:#0cac53}
+
+.tab-checkout .print-bill{display:block;width:100%;margin-bottom:10px;background:#d18b17;color:#10161c}
