@@ -1,25 +1,35 @@
 let loggedIn=false,products=[],cart={},payment='Dinheiro';
 const $=id=>document.getElementById(id),money=n=>(n/100).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
 async function api(path,method='GET',body){const r=await fetch('/api/'+path,{method,credentials:'same-origin',headers:{'X-PDV-Request':'1','Content-Type':'application/json'},body:body?JSON.stringify(body):undefined});const j=await r.json();if(!r.ok)throw Error(j.detail||'Erro na operação');return j}
-const imageUrls=new Map();
+const imageUrls=new Map(),imageRequests=new Map();
 async function loadImage(id){
-  try{
-    const r=await fetch('/api/products/'+id+'/image',{credentials:'same-origin'});
-    if(!r.ok)return;
-    const url=URL.createObjectURL(await r.blob());
-    if(imageUrls.has(id))URL.revokeObjectURL(imageUrls.get(id));
-    imageUrls.set(id,url);
-    document.querySelectorAll('img[data-product="'+id+'"]').forEach(img=>img.src=url);
-  }catch(e){console.warn('Imagem indisponível',e)}
+ if(imageUrls.has(id))return imageUrls.get(id);
+ if(imageRequests.has(id))return imageRequests.get(id);
+ const request=(async()=>{
+  const r=await fetch('/api/products/'+id+'/image',{credentials:'same-origin'});
+  if(!r.ok)throw Error('HTTP '+r.status);
+  const blob=await r.blob();
+  if(!blob.size)throw Error('Imagem vazia');
+  const url=URL.createObjectURL(blob);
+  imageUrls.set(id,url);
+  return url;
+ })();
+ imageRequests.set(id,request);
+ try{return await request}
+ finally{imageRequests.delete(id)}
 }
 function showImage(p,parent){
-  if(p.image){
-    const img=document.createElement('img');img.alt=p.name;img.dataset.product=p.id;
-    if(imageUrls.has(p.id))img.src=imageUrls.get(p.id);else loadImage(p.id);
-    parent.append(img);
-  }else{
-    const placeholder=document.createElement('div');placeholder.className='placeholder';placeholder.textContent='🍔';parent.append(placeholder);
-  }
+ if(!p.image){
+  const placeholder=document.createElement('div');placeholder.className='placeholder';
+  placeholder.textContent='🍔';parent.append(placeholder);return;
+ }
+ const img=document.createElement('img');img.alt=p.name;img.dataset.product=p.id;
+ img.loading='lazy';img.decoding='async';
+ img.onerror=()=>{img.onerror=null;img.removeAttribute('src');img.alt='Foto indisponível: '+p.name};
+ parent.append(img);
+ if(imageUrls.has(p.id)){img.src=imageUrls.get(p.id);return}
+ loadImage(p.id).then(url=>{if(img.isConnected)img.src=url})
+  .catch(e=>console.warn('Imagem indisponível para produto '+p.id,e));
 }
 function renderInventory(items=products){
  const root=$('inventory');root.replaceChildren();
@@ -84,7 +94,10 @@ async function sendImage(id,file){
   if(file.size>4_000_000)throw Error('A foto deve ter no máximo 4 MB.');
   const data=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onerror=()=>reject(Error('Não foi possível ler a imagem.'));reader.onload=()=>resolve(reader.result.split(',')[1]);reader.readAsDataURL(file)});
   await api('products/'+id+'/image','PUT',{data});
-  if(imageUrls.has(id)){URL.revokeObjectURL(imageUrls.get(id));imageUrls.delete(id)}
+  // A nova foto recebe uma URL nova; nao revoga a antiga enquanto outras
+  // imagens ainda podem estar exibindo ela.
+  imageUrls.delete(id);
+  imageRequests.delete(id);
   await refresh();
 }
 async function refresh(){try{const data=await api('state');loggedIn=true;$('login').textContent='Sair';products=data.products;$('status').textContent=data.session?'● Caixa aberto #'+data.session.id+' • Saldo em dinheiro: '+money(data.session.balance):'● Caixa fechado';render();renderRegistered();await refreshInventory()}catch(e){loggedIn=false;$('login').textContent='Entrar';$('status').textContent=e.message}}
