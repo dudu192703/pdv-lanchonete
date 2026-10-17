@@ -410,15 +410,58 @@ def remove_from_tab(tab_id: int, product_id: int, s: Store = Depends(get_store))
         raise HTTPException(400, str(exc))
 
 
-def print_kitchen_raw(content: str):
+def windows_printers():
+    if os.name != "nt":
+        return []
+    import ctypes
+    from ctypes import wintypes
+    spool = ctypes.WinDLL("winspool.drv", use_last_error=True)
+    class PRINTER_INFO_4(ctypes.Structure):
+        _fields_ = [("pPrinterName", wintypes.LPWSTR), ("pServerName", wintypes.LPWSTR),
+                    ("Attributes", wintypes.DWORD)]
+    spool.EnumPrintersW.argtypes = [wintypes.DWORD, wintypes.LPWSTR, wintypes.DWORD,
+                                   ctypes.c_void_p, wintypes.DWORD,
+                                   ctypes.POINTER(wintypes.DWORD), ctypes.POINTER(wintypes.DWORD)]
+    spool.EnumPrintersW.restype = wintypes.BOOL
+    needed, returned = wintypes.DWORD(), wintypes.DWORD()
+    spool.EnumPrintersW(2 | 4, None, 4, None, 0, ctypes.byref(needed), ctypes.byref(returned))
+    if not needed.value:
+        return []
+    buffer = ctypes.create_string_buffer(needed.value)
+    if not spool.EnumPrintersW(2 | 4, None, 4, buffer, needed.value,
+                               ctypes.byref(needed), ctypes.byref(returned)):
+        raise OSError(ctypes.get_last_error(), "Falha ao listar impressoras")
+    printers = ctypes.cast(buffer, ctypes.POINTER(PRINTER_INFO_4))
+    return sorted({printers[i].pPrinterName for i in range(returned.value)
+                   if printers[i].pPrinterName}, key=str.casefold)
+
+class PrinterSettingsInput(BaseModel):
+    printer: str = Field(min_length=1, max_length=255)
+
+@app.get("/api/settings/printers", dependencies=[Depends(auth)])
+def get_printer_settings(s: Store = Depends(get_store)):
+    row = s.db.execute("SELECT value FROM settings WHERE key='kitchen_printer'").fetchone()
+    return {"printers": windows_printers(),
+            "selected": row["value"] if row else os.getenv("PDV_KITCHEN_PRINTER", "")}
+
+@app.put("/api/settings/printers", dependencies=[Depends(auth)])
+def save_printer_settings(data: PrinterSettingsInput, s: Store = Depends(get_store)):
+    name = data.printer.strip()
+    if name not in windows_printers():
+        raise HTTPException(400, "Selecione uma impressora instalada no computador do PDV.")
+    with s.db:
+        s.db.execute("INSERT INTO settings(key,value) VALUES ('kitchen_printer',?) "
+                     "ON CONFLICT(key) DO UPDATE SET value=excluded.value", (name,))
+    return {"ok": True, "selected": name}
+
+def print_kitchen_raw(content: str, printer_name: str):
     """Envia ESC/POS diretamente para a fila de impressao do Windows."""
     if os.name != "nt":
         raise RuntimeError("A impressora da cozinha requer Windows.")
     import ctypes
     from ctypes import wintypes
-    printer_name = os.getenv("PDV_KITCHEN_PRINTER", "").strip()
     if not printer_name:
-        raise RuntimeError("Configure PDV_KITCHEN_PRINTER com o nome da impressora no Windows.")
+        raise RuntimeError("Selecione a impressora em Configurações do PDV.")
     winspool = ctypes.WinDLL("winspool.drv", use_last_error=True)
     class DOC_INFO_1(ctypes.Structure):
         _fields_ = [("pDocName", wintypes.LPWSTR), ("pOutputFile", wintypes.LPWSTR),
@@ -461,7 +504,9 @@ def print_kitchen_raw(content: str):
 @app.post("/api/tabs/{tab_id}/kitchen", dependencies=[Depends(auth)])
 def send_tab_to_kitchen(tab_id: int, s: Store = Depends(get_store)):
     try:
-        return s.send_kitchen(tab_id, print_kitchen_raw)
+        row = s.db.execute("SELECT value FROM settings WHERE key='kitchen_printer'").fetchone()
+        name = row["value"] if row else os.getenv("PDV_KITCHEN_PRINTER", "")
+        return s.send_kitchen(tab_id, lambda content: print_kitchen_raw(content, name))
     except ValueError as exc:
         raise HTTPException(400, str(exc))
     except (OSError, RuntimeError) as exc:
