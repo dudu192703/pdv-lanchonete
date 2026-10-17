@@ -233,8 +233,19 @@ async function loadTabs(){
    const row=document.createElement('div');row.className='tab-row';
    const open=document.createElement('button');open.textContent=tab.customer+' • '+money(tab.total);
    open.onclick=()=>showTab(tab.id,tab.customer);
+   const kitchen=document.createElement('button');kitchen.textContent='🖨 Enviar para cozinha';kitchen.className='kitchen-send';
+   kitchen.onclick=async()=>{
+    if(!confirm('Confirmar envio dos novos produtos da comanda de '+tab.customer+' para a cozinha?'))return;
+    kitchen.disabled=true;
+    try{
+     const result=await api('tabs/'+tab.id+'/kitchen','POST',{});
+     alert('Pedido enviado à impressora da cozinha ('+result.items+' unidade(s)).');
+     if(activeTab===tab.id)await showTab(tab.id,tab.customer);
+    }catch(e){alert('Não foi possível enviar: '+e.message)}
+    finally{kitchen.disabled=false}
+   };
    const close=document.createElement('button');close.textContent='Fechar conta';close.onclick=()=>closeTab(tab.id,tab.customer);
-   row.append(open,close);root.append(row);
+   row.append(open,kitchen,close);root.append(row);
   }
   if(!tabs.some(t=>t.id===activeTab)){$('tabDetail').replaceChildren();activeTab=null}
  }catch(e){$('tabList').textContent=e.message}
@@ -256,8 +267,9 @@ async function showTab(id,customer){
   for(const item of items){
    const row=document.createElement('div');row.className='tab-item-line';
    const label=document.createElement('span');label.textContent=item.quantity+'× '+item.name+' — '+money(item.price*item.quantity);
-   const remove=document.createElement('button');remove.textContent='✕';remove.className='danger';remove.title='Retirar uma unidade';
+   const remove=document.createElement('button');remove.textContent='✕';remove.className='danger';remove.title='Retirar uma unidade ainda não enviada';remove.disabled=item.quantity<=item.sent_quantity;
    remove.onclick=async()=>{remove.disabled=true;try{await api('tabs/'+id+'/items/'+item.product_id,'DELETE');await reload();await loadTabs()}catch(e){alert(e.message);remove.disabled=false}};
+   if(item.sent_quantity){const sent=document.createElement('small');sent.textContent=' • '+item.sent_quantity+' enviada(s)';label.append(sent)}
    row.append(label,remove);total+=item.price*item.quantity;lines.append(row);
   }
   const summary=document.createElement('strong');summary.textContent='Total: '+money(total);lines.append(summary);
