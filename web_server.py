@@ -446,7 +446,7 @@ def print_kitchen_raw(content: str):
                 raise OSError(ctypes.get_last_error(), "Falha ao iniciar página")
             try:
                 # CP850 suporta caracteres portugueses na maioria das impressoras ESC/POS.
-                data = b"\\x1b@" + b"\\x1bt\\x02" + content.encode("cp850", errors="replace") + b"\\n\\n\\n"
+                data = b"\x1b@" + b"\x1bt\x02" + content.encode("cp850", errors="replace") + b"\n\n\n"
                 buffer = ctypes.create_string_buffer(data)
                 written = wintypes.DWORD()
                 if not winspool.WritePrinter(handle, buffer, len(data), ctypes.byref(written)) or written.value != len(data):
