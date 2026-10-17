@@ -296,6 +296,17 @@ async function closeTab(id,customer){
   const methods=document.createElement('div');methods.className='tab-payments';
   const submit=document.createElement('button');submit.className='finish';submit.textContent='✓ FINALIZAR PAGAMENTO';
   const cancel=document.createElement('button');cancel.textContent='Voltar para comanda';
+  const printBill=document.createElement('button');printBill.className='print-bill';
+  printBill.textContent='🖨 Imprimir comanda para o cliente';
+  printBill.onclick=async()=>{
+   if(printBill.disabled||checkoutTab!==id)return;
+   printBill.disabled=true;
+   try{
+    await api('tabs/'+id+'/print-bill','POST',{});
+    alert('Conta enviada para a impressora configurada. A comanda continua aberta.');
+   }catch(e){alert('Erro ao imprimir conta: '+e.message)}
+   finally{printBill.disabled=false}
+  };
   let chosen='Dinheiro';
   for(const method of ['Dinheiro','Pix','Débito','Crédito']){
    const btn=document.createElement('button');btn.textContent=method;btn.className=method===chosen?'chosen':'';
@@ -313,7 +324,7 @@ async function closeTab(id,customer){
     $('status').textContent='✓ Comanda de '+customer+' fechada • Venda #'+result.id+' • '+money(result.total);
    }catch(e){alert(e.message)}finally{submit.disabled=false}
   };
-  root.append(heading,summary,sum,label,methods,submit,cancel);
+  root.append(heading,summary,sum,label,methods,printBill,submit,cancel);
   root.scrollIntoView({behavior:'smooth',block:'start'});
  }catch(e){alert(e.message)}
 }
