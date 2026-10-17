@@ -512,6 +512,52 @@ def send_tab_to_kitchen(tab_id: int, s: Store = Depends(get_store)):
     except (OSError, RuntimeError) as exc:
         raise HTTPException(503, "Impressão não concluída: " + str(exc))
 
+def format_customer_receipt(tab_id: int, s: Store):
+    from datetime import datetime
+    tab = s.db.execute(
+        "SELECT customer FROM tabs WHERE id=? AND closed IS NULL", (tab_id,)).fetchone()
+    if not tab:
+        raise ValueError("Comanda não encontrada ou já fechada.")
+    items = s.db.execute(
+        "SELECT name,price,quantity FROM tab_items WHERE tab_id=? ORDER BY name", (tab_id,)
+    ).fetchall()
+    if not items:
+        raise ValueError("Comanda sem produtos.")
+    width = 32
+    lines = ["PISCIBAR DO JOAO", "CONTA DO CLIENTE", "-" * width,
+             "COMANDA #" + str(tab_id), "Cliente: " + tab["customer"],
+             datetime.now().strftime("%d/%m/%Y %H:%M"), "-" * width]
+    total = 0
+    for item in items:
+        subtotal = item["price"] * item["quantity"]
+        total += subtotal
+        name = item["name"].strip()
+        # Quebra nomes longos para evitar corte no papel de 58 mm.
+        while len(name) > width:
+            lines.append(name[:width])
+            name = name[width:]
+        if name:
+            lines.append(name)
+        amount = money(subtotal)
+        prefix = str(item["quantity"]) + " x " + money(item["price"])
+        lines.append(prefix + " " * max(1, width - len(prefix) - len(amount)) + amount)
+    lines += ["-" * width, "TOTAL: " + money(total), "-" * width,
+              "CONFERENCIA DE CONSUMO", "Pagamento nao realizado", "", "", ""]
+    return "\n".join(lines)
+
+@app.post("/api/tabs/{tab_id}/print-bill", dependencies=[Depends(auth)])
+def print_customer_bill(tab_id: int, s: Store = Depends(get_store)):
+    try:
+        content = format_customer_receipt(tab_id, s)
+        row = s.db.execute("SELECT value FROM settings WHERE key='kitchen_printer'").fetchone()
+        name = row["value"] if row else os.getenv("PDV_KITCHEN_PRINTER", "")
+        print_kitchen_raw(content, name)
+        return {"ok": True}
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    except (OSError, RuntimeError) as exc:
+        raise HTTPException(503, "Não foi possível imprimir a conta: " + str(exc))
+
 @app.post("/api/tabs/{tab_id}/close", dependencies=[Depends(auth)])
 def finish_tab(tab_id: int, data: TabCloseInput, s: Store = Depends(get_store)):
     try:
