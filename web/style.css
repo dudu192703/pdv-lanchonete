@@ -46,3 +46,5 @@
 .sales-products{border:1px solid #334454;border-radius:9px;padding:10px;max-height:210px;overflow:auto;min-width:200px}.sales-products label{display:flex;align-items:center;gap:7px;font-size:13px;padding:4px 0}.sales-products input{accent-color:#f5a623}.sales-product-choices{display:grid;grid-template-columns:repeat(auto-fit,minmax(125px,1fr));gap:2px 12px}
 
 .kitchen-send{background:#d18b17;color:#10161c}.tab-row{flex-wrap:wrap}.tab-row .kitchen-send{flex:0 1 auto}.tab-item-line small{color:#a4c7d6}@media(max-width:650px){.tab-row{grid-template-columns:minmax(0,1fr) auto}.tab-row .kitchen-send{grid-column:1 / -1;grid-row:2}}
+
+.printer-settings{display:flex;gap:10px;align-items:center;flex-wrap:wrap}.printer-settings select{background:#172532;color:#fff;border:1px solid #334454;padding:13px;border-radius:9px;min-width:220px;max-width:100%}.printer-settings #printerSave{background:#0cac53}
