@@ -18,7 +18,7 @@ def money(value):
 
 class Store:
     def __init__(self, path):
-        self.db = sqlite3.connect(path)
+        self.db = sqlite3.connect(path, check_same_thread=False, timeout=30)
         self.db.row_factory = sqlite3.Row
         self.db.execute('PRAGMA foreign_keys = ON')
         self.db.executescript('''
