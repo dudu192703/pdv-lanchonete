@@ -82,15 +82,60 @@ window.addEventListener('beforeunload',e=>{if(pendingCount()>0){e.preventDefault
 initialize();
 async function chooseVariants(productId){
  const groups=await api('products/'+productId+'/variants');
- const choices={};
- for(const g of groups){
-  if(!g.options.length)throw Error('A variedade "'+g.name+'" não possui opções cadastradas.');
-  const text=g.options.map((o,i)=>(i+1)+' - '+o.name).join('\\n');
-  const answer=prompt(g.name+'\\n'+text+'\\nDigite o número da opção:');
-  if(answer===null)return null;
-  const index=Number(answer);
-  if(!Number.isInteger(index)||index<1||index>g.options.length)throw Error('Escolha inválida para '+g.name+'.');
-  choices[String(g.id)]=g.options[index-1].id;
+ if(!groups.length)return {};
+ for(const group of groups){
+  if(!group.options.length)throw Error('A variedade "'+group.name+'" não possui opções cadastradas.');
  }
- return choices;
+ return new Promise(resolve=>{
+  const overlay=document.createElement('div');overlay.className='choice-overlay';
+  const dialog=document.createElement('section');dialog.className='choice-dialog';
+  dialog.setAttribute('role','dialog');dialog.setAttribute('aria-modal','true');dialog.setAttribute('aria-label','Escolher variedades');
+  const top=document.createElement('div');top.className='choice-top';
+  const title=document.createElement('h2');title.textContent='Escolha as variedades';
+  const cancel=document.createElement('button');cancel.type='button';cancel.className='choice-cancel';cancel.textContent='✕ Cancelar';
+  top.append(title,cancel);
+  const progress=document.createElement('p');progress.className='choice-progress';
+  const groupName=document.createElement('h3');groupName.className='choice-group-name';
+  const buttons=document.createElement('div');buttons.className='choice-options';
+  const footer=document.createElement('div');footer.className='choice-footer';
+  const back=document.createElement('button');back.type='button';back.textContent='← Voltar';
+  footer.append(back);
+  dialog.append(top,progress,groupName,buttons,footer);overlay.append(dialog);document.body.append(overlay);
+  const focusBefore=document.activeElement;
+  const selected={};let step=0,done=false;
+  function finish(result){
+   if(done)return;done=true;document.removeEventListener('keydown',onKey);overlay.remove();focusBefore?.focus();resolve(result);
+  }
+  function onKey(event){
+   if(event.key==='Escape'){event.preventDefault();finish(null)}
+   if(event.key==='Tab'){
+    const focusable=[...dialog.querySelectorAll('button:not(:disabled)')];
+    if(!focusable.length)return;
+    if(event.shiftKey&&document.activeElement===focusable[0]){event.preventDefault();focusable[focusable.length-1].focus()}
+    else if(!event.shiftKey&&document.activeElement===focusable[focusable.length-1]){event.preventDefault();focusable[0].focus()}
+   }
+  }
+  document.addEventListener('keydown',onKey);
+  cancel.onclick=()=>finish(null);
+  overlay.onclick=event=>{if(event.target===overlay)finish(null)};
+  back.onclick=()=>{if(step>0){step--;renderStep()}};
+  function renderStep(){
+   const group=groups[step];
+   progress.textContent='Etapa '+(step+1)+' de '+groups.length;
+   groupName.textContent=group.name;
+   back.hidden=step===0;buttons.replaceChildren();
+   for(const option of group.options){
+    const button=document.createElement('button');button.type='button';button.className='choice-option';
+    button.textContent=option.name;
+    button.onclick=()=>{
+     selected[String(group.id)]=option.id;
+     if(step===groups.length-1){finish({...selected});return}
+     step++;renderStep();
+    };
+    buttons.append(button);
+   }
+   (buttons.querySelector('button')||cancel).focus();
+  }
+  renderStep();
+ });
 }
