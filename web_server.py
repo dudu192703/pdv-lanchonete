@@ -556,6 +556,64 @@ def save_printer_settings(data: PrinterSettingsInput, s: Store = Depends(get_sto
                      "ON CONFLICT(key) DO UPDATE SET value=excluded.value", (name,))
     return {"ok": True, "selected": name}
 
+class EstablishmentInput(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+
+class EstablishmentLogoInput(BaseModel):
+    data: str = Field(min_length=1, max_length=6_000_000)
+
+@app.get("/api/establishment")
+def get_establishment(s: Store = Depends(get_store)):
+    values = dict(s.db.execute("SELECT key,value FROM settings WHERE key IN ('establishment_name','establishment_logo')").fetchall())
+    return {"name": values.get("establishment_name", "Piscibar do João"), "logo": bool(values.get("establishment_logo"))}
+
+@app.put("/api/settings/establishment", dependencies=[Depends(auth)])
+def save_establishment(data: EstablishmentInput, s: Store = Depends(get_store)):
+    name = data.name.strip()
+    if not name:
+        raise HTTPException(400, "Informe o nome do estabelecimento.")
+    with s.db:
+        s.db.execute("INSERT INTO settings(key,value) VALUES ('establishment_name',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (name,))
+    return {"ok": True, "name": name}
+
+@app.put("/api/settings/establishment/logo", dependencies=[Depends(auth)])
+def save_establishment_logo(data: EstablishmentLogoInput, s: Store = Depends(get_store)):
+    try:
+        raw = base64.b64decode(data.data, validate=True)
+        if len(raw) > 4_000_000:
+            raise ValueError("Arquivo muito grande.")
+        with Image.open(io.BytesIO(raw)) as source:
+            if source.format not in ("JPEG", "PNG", "WEBP") or source.width * source.height > 20_000_000:
+                raise ValueError("Formato ou resolução inválidos.")
+            source.load()
+            image = source.convert("RGBA")
+            image.thumbnail((600, 600))
+            output = io.BytesIO()
+            image.save(output, format="PNG", optimize=True)
+    except (ValueError, UnidentifiedImageError, OSError, binascii.Error) as exc:
+        raise HTTPException(400, "Logo inválida. Use JPG, PNG ou WEBP de até 4 MB.") from exc
+    filename = "establishment_logo.png"
+    (DATA / filename).write_bytes(output.getvalue())
+    with s.db:
+        s.db.execute("INSERT INTO settings(key,value) VALUES ('establishment_logo',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (filename,))
+    return {"ok": True}
+
+@app.delete("/api/settings/establishment/logo", dependencies=[Depends(auth)])
+def delete_establishment_logo(s: Store = Depends(get_store)):
+    with s.db:
+        s.db.execute("DELETE FROM settings WHERE key='establishment_logo'")
+    return {"ok": True}
+
+@app.get("/api/establishment/logo")
+def get_establishment_logo(s: Store = Depends(get_store)):
+    row = s.db.execute("SELECT value FROM settings WHERE key='establishment_logo'").fetchone()
+    if not row:
+        raise HTTPException(404, "Logo não cadastrada.")
+    path = DATA / Path(row["value"]).name
+    if not path.is_file():
+        raise HTTPException(404, "Logo não encontrada.")
+    return FileResponse(path, media_type="image/png", headers={"Cache-Control": "no-store"})
+
 def print_kitchen_raw(content: str, printer_name: str):
     """Envia ESC/POS diretamente para a fila de impressao do Windows."""
     if os.name != "nt":
