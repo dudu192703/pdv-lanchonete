@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>PDV Lanchonete</title><link rel="stylesheet" href="/static/style.css"></head>
+<title>PDV Lanchonete</title><link rel="stylesheet" href="/static/style.css?v=brand1"></head>
 <body>
 <header><h1 id="establishmentHeader">🍔 LANCHONETE <small>PDV WEB</small></h1><input id="search" placeholder="🔎 Pesquisar produto..."><button id="login">Entrar</button></header>
 <div class="layout">
@@ -12,4 +12,4 @@
 <section id="configuracoes" class="page"><h2>⚙ Configurações</h2><h3>Dados do estabelecimento</h3><form id="establishmentForm" class="establishment-form"><label>Nome do estabelecimento<input id="establishmentName" maxlength="120" required placeholder="Nome do estabelecimento"></label><button type="submit">Salvar nome</button></form><div class="establishment-logo-settings"><img id="establishmentLogoPreview" alt="Logo do estabelecimento" hidden><label class="filepick">📷 Escolher logo<input id="establishmentLogoFile" type="file" accept="image/jpeg,image/png,image/webp"></label><button id="establishmentLogoRemove" type="button" class="danger">Remover logo</button></div><p id="establishmentStatus" class="hint"></p><hr><h3>Impressora da cozinha (58 mm)</h3><p class="hint">Escolha uma impressora instalada no computador Windows que executa o PDV. A escolha fica salva no sistema.</p><div class="printer-settings"><select id="kitchenPrinter"><option value="">Carregando impressoras...</option></select><button id="printerRefresh" type="button">Atualizar lista</button><button id="printerSave" type="button">Salvar impressora</button></div><p id="printerStatus" class="hint"></p></section>
 </main>
 <aside><div class="asidehead"><h2>Pedido Atual</h2><button id="clear" class="danger">Limpar</button></div><div id="cart"></div><div class="sum">Total <strong id="total">R$ 0,00</strong></div><h3>Forma de pagamento</h3><div class="payments"><button class="chosen" data-pay="Dinheiro">Dinheiro</button><button data-pay="Pix">Pix</button><button data-pay="Débito">Débito</button><button data-pay="Crédito">Crédito</button></div><button id="finish" class="finish">✓ FINALIZAR VENDA</button></aside>
-</div><script src="/static/app.js"></script></body></html>
+</div><script src="/static/app.js?v=brand1"></script></body></html>
