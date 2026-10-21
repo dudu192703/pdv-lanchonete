@@ -87,7 +87,8 @@ function renderRegistered(){
       try{await api('products/'+p.id,'DELETE');delete cart[p.id];await refresh();await loadTabs()}
       catch(e){alert(e.message)}
     };
-    row.append(name,change,editPrice,editName,remove);el.append(row);
+    const variants=document.createElement('button');variants.textContent='➕ Adicionar variedade';variants.onclick=()=>manageVariants(p);
+    row.append(name,change,editPrice,editName,variants,remove);el.append(row);
   }
 }
 async function sendImage(id,file){
@@ -366,3 +367,41 @@ $('printerSave').onclick=async()=>{
  }catch(e){$('printerStatus').textContent='Erro ao salvar: '+e.message}
  finally{button.disabled=false}
 };
+
+async function manageVariants(p){
+ try{
+  let groups=await api('products/'+p.id+'/variants');
+  while(true){
+   const list=groups.map((g,i)=>(i+1)+'. '+g.name+': '+g.options.map(o=>o.name).join(', ')).join('\\n');
+   const action=prompt('Variedades de '+p.name+'\\n'+(list||'Nenhuma variedade cadastrada.')+'\\n\\n1 - Adicionar grupo\\n2 - Adicionar opção a um grupo\\n3 - Excluir opção\\n4 - Excluir grupo\\n0 - Sair');
+   if(action===null||action==='0')break;
+   if(action==='1'){
+    const name=prompt('Nome da variedade (ex.: Sabor do gin):');
+    if(name?.trim())await api('products/'+p.id+'/variants','POST',{name:name.trim()});
+   }else if(['2','3','4'].includes(action)){
+    const num=Number(prompt('Número do grupo:\\n'+list));
+    const group=groups[num-1];if(!group){alert('Grupo inválido.');continue}
+    if(action==='2'){
+     const name=prompt('Nome da opção (ex.: Limão):');
+     if(name?.trim())await api('variants/'+group.id+'/options','POST',{name:name.trim()});
+    }else if(action==='3'){
+     const n=Number(prompt('Número da opção:\\n'+group.options.map((o,i)=>(i+1)+' - '+o.name).join('\\n')));
+     if(group.options[n-1]&&confirm('Excluir esta opção?'))await api('variant-options/'+group.options[n-1].id,'DELETE');
+    }else if(confirm('Excluir o grupo '+group.name+' e suas opções?'))await api('variants/'+group.id,'DELETE');
+   }
+   groups=await api('products/'+p.id+'/variants');
+  }
+ }catch(e){alert('Erro nas variedades: '+e.message)}
+}
+async function chooseProductVariants(productId){
+ const groups=await api('products/'+productId+'/variants'),choices={};
+ for(const group of groups){
+  if(!group.options.length)throw Error('Cadastre opções para '+group.name);
+  const n=prompt(group.name+'\\n'+group.options.map((o,i)=>(i+1)+' - '+o.name).join('\\n')+'\\nNúmero da opção:');
+  if(n===null)return null;
+  const i=Number(n)-1;
+  if(!Number.isInteger(i)||!group.options[i])throw Error('Opção inválida.');
+  choices[String(group.id)]=group.options[i].id;
+ }
+ return choices;
+}
