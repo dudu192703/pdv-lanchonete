@@ -88,7 +88,12 @@ async function chooseVariants(productId){
  }
  return new Promise(resolve=>{
   const overlay=document.createElement('div');overlay.className='choice-overlay';
+  // Estilos essenciais aplicados diretamente: popup flutuante mesmo com CSS antigo em cache.
+  Object.assign(overlay.style,{position:'fixed',inset:'0',width:'100%',height:'100%',zIndex:'2147483647',display:'flex',alignItems:'center',justifyContent:'center',padding:'12px',background:'rgba(0,0,0,.75)',boxSizing:'border-box',overflow:'hidden'});
+  const previousOverflow=document.body.style.overflow;
+  document.body.style.overflow='hidden';
   const dialog=document.createElement('section');dialog.className='choice-dialog';
+  Object.assign(dialog.style,{position:'relative',margin:'auto',width:'min(460px,100%)',maxHeight:'calc(100% - 20px)',overflowY:'auto',background:'#172838',border:'1px solid #516a7e',borderRadius:'16px',padding:'18px',boxSizing:'border-box'});
   dialog.setAttribute('role','dialog');dialog.setAttribute('aria-modal','true');dialog.setAttribute('aria-label','Escolher variedades');
   const top=document.createElement('div');top.className='choice-top';
   const title=document.createElement('h2');title.textContent='Escolha as variedades';
@@ -104,7 +109,7 @@ async function chooseVariants(productId){
   const focusBefore=document.activeElement;
   const selected={};let step=0,done=false;
   function finish(result){
-   if(done)return;done=true;document.removeEventListener('keydown',onKey);overlay.remove();if(focusBefore?.isConnected)focusBefore.focus({preventScroll:true});resolve(result);
+   if(done)return;done=true;document.removeEventListener('keydown',onKey);overlay.remove();document.body.style.overflow=previousOverflow;if(focusBefore?.isConnected)focusBefore.focus({preventScroll:true});resolve(result);
   }
   function onKey(event){
    if(event.key==='Escape'){event.preventDefault();finish(null)}
