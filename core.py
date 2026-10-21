@@ -241,8 +241,8 @@ class Store:
             self.db.execute('INSERT INTO movements(session_id,kind,amount,note) VALUES (?,?,?,?)',
                             (session['id'], kind, -amount if kind == 'Sangria' else amount, note.strip()))
 
-    def sell(self, cart, payment):
-        if not cart or payment not in ('Dinheiro', 'Pix', 'Cartão', 'Débito', 'Crédito'):
+    def sell(self, cart, payment, variants=None):
+        if not cart and not variants or payment not in ('Dinheiro', 'Pix', 'Cartão', 'Débito', 'Crédito'):
             raise ValueError('Adicione produtos e selecione o pagamento.')
         # Trava de escrita antes de conferir estoque, evitando vendas simultâneas
         # que poderiam utilizar as mesmas unidades.
@@ -261,14 +261,32 @@ class Store:
                 if available < quantity:
                     raise ValueError(f"Estoque insuficiente para {product['name']}. Disponível: {available}.")
                 lines.append((product, quantity))
-            total = sum(p['price'] * q for p, q in lines)
+            variant_lines=[]
+            for entry in (variants or []):
+                pid=entry.get("product_id")
+                product=self.db.execute("SELECT * FROM products WHERE id=? AND active=1",(pid,)).fetchone()
+                if not product: raise ValueError("Produto inválido.")
+                label=self.variant_label(pid,entry.get("choices",{}))
+                if not label: raise ValueError("Produto sem variedades.")
+                variant_lines.append((product,label))
+            counts={}
+            for p,q in lines: counts[p["id"]]=counts.get(p["id"],0)+q
+            for p,label in variant_lines: counts[p["id"]]=counts.get(p["id"],0)+1
+            for pid,quantity in counts.items():
+                stock=self.db.execute("SELECT stock FROM products WHERE id=?",(pid,)).fetchone()[0]
+                reserved=self.db.execute("SELECT COALESCE(SUM(quantity),0) FROM tab_items WHERE product_id=?",(pid,)).fetchone()[0]
+                reserved+=self.db.execute("SELECT COALESCE(SUM(quantity),0) FROM tab_variant_items WHERE product_id=?",(pid,)).fetchone()[0]
+                if stock-reserved<quantity: raise ValueError("Estoque insuficiente.")
+            total = sum(p['price'] * q for p, q in lines)+sum(p["price"] for p,label in variant_lines)
             sale_id = self.db.execute('INSERT INTO sales(session_id,payment,total) VALUES (?,?,?)',
                                       (session['id'], payment, total)).lastrowid
             self.db.executemany('INSERT INTO items VALUES (?,?,?,?,?)',
-                                [(sale_id, p['id'], p['name'], p['price'], q) for p, q in lines])
+                                [(sale_id, p['id'], p['name'], p['price'], q) for p, q in lines]+[(sale_id,p["id"],p["name"]+" ("+label+")",p["price"],1) for p,label in variant_lines])
             for product, quantity in lines:
                 self.db.execute('UPDATE products SET stock=stock-? WHERE id=?',
                                 (quantity, product['id']))
+            for product,label in variant_lines:
+                self.db.execute('UPDATE products SET stock=stock-1 WHERE id=?',(product["id"],))
             self.db.commit()
             return sale_id, total
         except BaseException:
