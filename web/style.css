@@ -50,3 +50,5 @@
 .printer-settings{display:flex;gap:10px;align-items:center;flex-wrap:wrap}.printer-settings select{background:#172532;color:#fff;border:1px solid #334454;padding:13px;border-radius:9px;min-width:220px;max-width:100%}.printer-settings #printerSave{background:#0cac53}
 
 .tab-checkout .print-bill{display:block;width:100%;margin-bottom:10px;background:#d18b17;color:#10161c}
+
+nav .comandas-link{display:block;text-decoration:none;text-align:left;background:#203040;color:#f4f7fa;font-weight:650;border-radius:9px;padding:13px}nav .comandas-link:hover{filter:brightness(1.15)}
