@@ -163,7 +163,7 @@ class Store:
             result = self.db.execute("UPDATE products SET active=0 WHERE id=? AND active=1", (product_id,))
             if result.rowcount != 1:
                 raise ValueError("Produto não encontrado.")
-            self.db.execute("DELETE FROM tab_items WHERE product_id=?", (product_id,))
+            self.db.execute("DELETE FROM tab_items WHERE product_id=? AND sent_quantity=0", (product_id,))
 
     def remove_tab_item(self, tab_id, product_id):
         self.db.execute("BEGIN IMMEDIATE")
@@ -395,19 +395,20 @@ class Store:
             session = self.required_session()
             items = self.db.execute(
                 "SELECT * FROM tab_items WHERE tab_id=?", (tab_id,)).fetchall()
-            if not items:
+            variants=self.db.execute("SELECT * FROM tab_variant_items WHERE tab_id=?",(tab_id,)).fetchall()
+            if not items and not variants:
                 raise ValueError("Comanda sem produtos.")
-            for item in items:
+            for item in list(items)+list(variants):
                 product = self.db.execute("SELECT stock FROM products WHERE id=?", (item["product_id"],)).fetchone()
                 if not product or product["stock"] < item["quantity"]:
                     raise ValueError("Estoque insuficiente para " + item["name"])
-            total = sum(item["price"]*item["quantity"] for item in items)
+            total = sum(item["price"]*item["quantity"] for item in list(items)+list(variants))
             sale_id = self.db.execute(
                 "INSERT INTO sales(session_id,payment,total) VALUES (?,?,?)",
                 (session["id"],payment,total)).lastrowid
             self.db.executemany("INSERT INTO items VALUES (?,?,?,?,?)",
-                [(sale_id,i["product_id"],i["name"],i["price"],i["quantity"]) for i in items])
-            for item in items:
+                [(sale_id,i["product_id"],i["name"],i["price"],i["quantity"]) for i in items]+[(sale_id,i["product_id"],i["name"]+" ("+i["choices"]+")",i["price"],i["quantity"]) for i in variants])
+            for item in list(items)+list(variants):
                 self.db.execute("UPDATE products SET stock=stock-? WHERE id=?",
                                 (item["quantity"],item["product_id"]))
             self.db.execute("UPDATE tabs SET closed=CURRENT_TIMESTAMP,sale_id=? WHERE id=?",
