@@ -300,10 +300,11 @@ class Store:
     def tab_items(self, tab_id):
         if not self.db.execute("SELECT 1 FROM tabs WHERE id=? AND closed IS NULL", (tab_id,)).fetchone():
             raise ValueError("Comanda não encontrada ou já fechada.")
-        return [dict(r) for r in self.db.execute(
-            "SELECT product_id,name,price,quantity,sent_quantity FROM tab_items WHERE tab_id=? ORDER BY name", (tab_id,))]
+        regular=[dict(r,variant_id=None,choices="") for r in self.db.execute("SELECT product_id,name,price,quantity,sent_quantity FROM tab_items WHERE tab_id=? ORDER BY name",(tab_id,))]
+        variants=[dict(r,variant_id=r["id"]) for r in self.db.execute("SELECT id,product_id,name,price,quantity,sent_quantity,choices FROM tab_variant_items WHERE tab_id=? ORDER BY id",(tab_id,))]
+        return regular+variants
 
-    def add_tab_item(self, tab_id, product_id):
+    def add_tab_item(self, tab_id, product_id, choices=None):
         self.db.execute("BEGIN IMMEDIATE")
         try:
             tab = self.db.execute("SELECT id FROM tabs WHERE id=? AND closed IS NULL", (tab_id,)).fetchone()
@@ -312,12 +313,30 @@ class Store:
                 raise ValueError("Comanda ou produto inválido.")
             reserved = self.db.execute(
                 "SELECT COALESCE(SUM(quantity),0) FROM tab_items WHERE product_id=?", (product_id,)).fetchone()[0]
+            reserved += self.db.execute("SELECT COALESCE(SUM(quantity),0) FROM tab_variant_items WHERE product_id=?",(product_id,)).fetchone()[0]
             if product["stock"] <= reserved:
                 raise ValueError("Estoque insuficiente para " + product["name"])
+            label=self.variant_label(product_id,choices or {})
+            if label:
+                self.db.execute("INSERT INTO tab_variant_items(tab_id,product_id,name,price,choices) VALUES (?,?,?,?,?) ON CONFLICT(tab_id,product_id,choices) DO UPDATE SET quantity=quantity+1",(tab_id,product_id,product["name"],product["price"],label))
+                self.db.commit()
+                return
             self.db.execute(
                 "INSERT INTO tab_items(tab_id,product_id,name,price,quantity) VALUES (?,?,?,?,1) "
                 "ON CONFLICT(tab_id,product_id) DO UPDATE SET quantity=quantity+1",
                 (tab_id,product_id,product["name"],product["price"]))
+            self.db.commit()
+        except BaseException:
+            self.db.rollback()
+            raise
+
+    def remove_variant_item(self, tab_id, variant_id):
+        self.db.execute("BEGIN IMMEDIATE")
+        try:
+            row=self.db.execute("SELECT quantity,sent_quantity FROM tab_variant_items WHERE id=? AND tab_id=? AND tab_id IN (SELECT id FROM tabs WHERE closed IS NULL)",(variant_id,tab_id)).fetchone()
+            if not row or row["quantity"]<=row["sent_quantity"]: raise ValueError("Item inexistente ou já enviado.")
+            if row["quantity"]==1: self.db.execute("DELETE FROM tab_variant_items WHERE id=?",(variant_id,))
+            else: self.db.execute("UPDATE tab_variant_items SET quantity=quantity-1 WHERE id=?",(variant_id,))
             self.db.commit()
         except BaseException:
             self.db.rollback()
@@ -334,7 +353,8 @@ class Store:
             items = self.db.execute(
                 "SELECT product_id,name,quantity,sent_quantity FROM tab_items WHERE tab_id=? "
                 "AND quantity>sent_quantity ORDER BY name", (tab_id,)).fetchall()
-            if not items:
+            variant_items=self.db.execute("SELECT id,name,choices,quantity,sent_quantity FROM tab_variant_items WHERE tab_id=? AND quantity>sent_quantity ORDER BY id",(tab_id,)).fetchall()
+            if not items and not variant_items:
                 raise ValueError("Não há novos produtos para enviar à cozinha.")
             from datetime import datetime
             now = datetime.now().strftime("%d/%m/%Y %H:%M")
@@ -345,15 +365,21 @@ class Store:
             for item in items:
                 text += str(item["quantity"] - item["sent_quantity"]) + "x " + item["name"] + "\n"
             text += "-" * 32 + "\nPREPARAR PEDIDO\n\n\n"
+            for item in variant_items:
+                text += str(item["quantity"]-item["sent_quantity"])+"x "+item["name"]+"\\n"
+                for choice in item["choices"].split(" | "):
+                    text += "  "+choice+"\\n"
             printer(text)
             for item in items:
                 self.db.execute(
                     "UPDATE tab_items SET sent_quantity=quantity WHERE tab_id=? AND product_id=?",
                     (tab_id, item["product_id"]))
+            for item in variant_items:
+                self.db.execute("UPDATE tab_variant_items SET sent_quantity=quantity WHERE id=?",(item["id"],))
             self.db.execute(
                 "INSERT INTO kitchen_prints(tab_id,content) VALUES (?,?)", (tab_id,text))
             self.db.commit()
-            return {"items": sum(x["quantity"] - x["sent_quantity"] for x in items)}
+            return {"items": sum(x["quantity"] - x["sent_quantity"] for x in list(items)+list(variant_items))}
         except BaseException:
             self.db.rollback()
             raise
