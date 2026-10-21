@@ -60,6 +60,14 @@ def auth(request: Request):
             raise HTTPException(403, "Origem não autorizada.")
     SESSIONS[sid] = time.time() + SESSION_SECONDS
 
+def get_store():
+    """Uma conexão SQLite independente por requisição, fechada após o uso."""
+    db = Store(DATA / "pdv.sqlite3")
+    try:
+        yield db
+    finally:
+        db.db.close()
+
 def waiter_auth(request: Request):
     """Aceita caixa ou garçom, mantendo endpoints financeiros só para o caixa."""
     try:
@@ -121,13 +129,6 @@ def waiter_page():
     return FileResponse(BASE / "web" / "comandas.html")
 
 
-def get_store():
-    """Uma conexão SQLite independente por requisição, fechada após o uso."""
-    db = Store(DATA / "pdv.sqlite3")
-    try:
-        yield db
-    finally:
-        db.db.close()
 
 class LoginInput(BaseModel):
     password: str
