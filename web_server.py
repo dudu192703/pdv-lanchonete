@@ -41,6 +41,7 @@ FAILED = defaultdict(list)
 SESSION_SECONDS = 8 * 60 * 60
 WAITER_PASSWORD = os.getenv("PDV_WAITER_PASSWORD", "")
 WAITER_SESSIONS = {}
+WAITER_FAILED = defaultdict(list)
 
 app = FastAPI(title="PDV Lanchonete", docs_url=None, redoc_url=None)
 app.mount("/static", StaticFiles(directory=BASE / "web"), name="static")
@@ -86,8 +87,15 @@ class WaiterLoginInput(BaseModel):
 def waiter_login(data: WaiterLoginInput, request: Request, response: Response):
     if not WAITER_PASSWORD:
         raise HTTPException(503, "Configure PDV_WAITER_PASSWORD no servidor.")
+    ip = request.client.host if request.client else "unknown"
+    now = time.time()
+    WAITER_FAILED[ip] = [t for t in WAITER_FAILED[ip] if now - t < 900]
+    if len(WAITER_FAILED[ip]) >= 8:
+        raise HTTPException(429, "Muitas tentativas. Aguarde 15 minutos.")
     if not secrets.compare_digest(data.password, WAITER_PASSWORD):
+        WAITER_FAILED[ip].append(now)
         raise HTTPException(401, "Senha do garçom incorreta.")
+    WAITER_FAILED.pop(ip, None)
     sid = secrets.token_urlsafe(32)
     WAITER_SESSIONS[sid] = time.time() + SESSION_SECONDS
     response.set_cookie("pdv_waiter", sid, httponly=True, samesite="strict",
