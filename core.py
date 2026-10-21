@@ -304,9 +304,10 @@ class Store:
 
     def tabs(self):
         return [dict(r) for r in self.db.execute(
-            "SELECT t.id,t.customer,t.created,COALESCE(SUM(i.price*i.quantity),0) AS total "
-            "FROM tabs t LEFT JOIN tab_items i ON i.tab_id=t.id "
-            "WHERE t.closed IS NULL GROUP BY t.id ORDER BY t.id DESC")]
+            "SELECT t.id,t.customer,t.created,"
+            "(SELECT COALESCE(SUM(price*quantity),0) FROM tab_items WHERE tab_id=t.id)+"
+            "(SELECT COALESCE(SUM(price*quantity),0) FROM tab_variant_items WHERE tab_id=t.id) AS total "
+            "FROM tabs t WHERE t.closed IS NULL ORDER BY t.id DESC")]
 
     def create_tab(self, customer):
         customer = customer.strip()
@@ -384,7 +385,7 @@ class Store:
                 text += str(item["quantity"] - item["sent_quantity"]) + "x " + item["name"] + "\n"
             text += "-" * 32 + "\nPREPARAR PEDIDO\n\n\n"
             for item in variant_items:
-                text += str(item["quantity"]-item["sent_quantity"])+"x "+item["name"]+"\\n"
+                text += str(item["quantity"]-item["sent_quantity"])+"x "+item["name"]+"\n"
                 for choice in item["choices"].split(" | "):
                     text += "  "+choice+"\\n"
             printer(text)
@@ -416,10 +417,12 @@ class Store:
             variants=self.db.execute("SELECT * FROM tab_variant_items WHERE tab_id=?",(tab_id,)).fetchall()
             if not items and not variants:
                 raise ValueError("Comanda sem produtos.")
+            quantities={}
             for item in list(items)+list(variants):
-                product = self.db.execute("SELECT stock FROM products WHERE id=?", (item["product_id"],)).fetchone()
-                if not product or product["stock"] < item["quantity"]:
-                    raise ValueError("Estoque insuficiente para " + item["name"])
+                quantities[item["product_id"]]=quantities.get(item["product_id"],0)+item["quantity"]
+            for product_id,quantity in quantities.items():
+                product=self.db.execute("SELECT stock FROM products WHERE id=?",(product_id,)).fetchone()
+                if not product or product["stock"]<quantity: raise ValueError("Estoque insuficiente para fechar comanda.")
             total = sum(item["price"]*item["quantity"] for item in list(items)+list(variants))
             sale_id = self.db.execute(
                 "INSERT INTO sales(session_id,payment,total) VALUES (?,?,?)",
