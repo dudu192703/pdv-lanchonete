@@ -62,7 +62,7 @@ function renderProducts(){
   if(p.image){const img=document.createElement('img');img.alt=p.name;img.loading='lazy';img.src='/api/products/'+p.id+'/image';b.append(img)}
   const name=document.createElement('strong');name.textContent=p.name;
   const price=document.createElement('span');price.textContent=money(p.price)+(p.stock===0?' • Sem estoque':'');b.append(name,price);
-  b.onclick=async()=>{const id=active;b.disabled=true;try{const choices=await chooseVariants(p.id);if(choices===null)return;await api('tabs/'+id+'/items','POST',{product_id:p.id,choices});await renderTab();await loadTabs()}catch(e){message(e.message)}finally{b.disabled=false}};
+  b.onclick=async()=>{const id=active,scrollY=window.scrollY;b.disabled=true;try{const choices=await chooseVariants(p.id);if(choices===null)return;await api('tabs/'+id+'/items','POST',{product_id:p.id,choices});await renderTab();await loadTabs();window.scrollTo({top:scrollY,behavior:'instant'})}catch(e){message(e.message)}finally{b.disabled=false}};
   root.append(b);
  }
 }
@@ -104,7 +104,7 @@ async function chooseVariants(productId){
   const focusBefore=document.activeElement;
   const selected={};let step=0,done=false;
   function finish(result){
-   if(done)return;done=true;document.removeEventListener('keydown',onKey);overlay.remove();focusBefore?.focus();resolve(result);
+   if(done)return;done=true;document.removeEventListener('keydown',onKey);overlay.remove();if(focusBefore?.isConnected)focusBefore.focus({preventScroll:true});resolve(result);
   }
   function onKey(event){
    if(event.key==='Escape'){event.preventDefault();finish(null)}
@@ -134,7 +134,7 @@ async function chooseVariants(productId){
     };
     buttons.append(button);
    }
-   (buttons.querySelector('button')||cancel).focus();
+   (buttons.querySelector('button')||cancel).focus({preventScroll:true});
   }
   renderStep();
  });
