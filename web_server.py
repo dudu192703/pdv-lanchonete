@@ -436,9 +436,45 @@ class TabInput(BaseModel):
 
 class TabItemInput(BaseModel):
     product_id: int
+    choices: dict[str,int] = Field(default_factory=dict)
 
 class TabCloseInput(BaseModel):
     payment: str
+
+class VariantNameInput(BaseModel):
+    name: str = Field(min_length=1,max_length=80)
+
+@app.get("/api/products/{product_id}/variants", dependencies=[Depends(waiter_auth)])
+def get_variants(product_id: int, s: Store = Depends(get_store)):
+    return s.variant_groups(product_id)
+
+@app.post("/api/products/{product_id}/variants", dependencies=[Depends(auth)])
+def create_variant(product_id: int, data: VariantNameInput, s: Store = Depends(get_store)):
+    try: return {"id":s.add_variant_group(product_id,data.name)}
+    except ValueError as exc: raise HTTPException(400,str(exc))
+
+@app.post("/api/variants/{group_id}/options", dependencies=[Depends(auth)])
+def create_variant_option(group_id: int, data: VariantNameInput, s: Store = Depends(get_store)):
+    try: return {"id":s.add_variant_option(group_id,data.name)}
+    except ValueError as exc: raise HTTPException(400,str(exc))
+
+@app.delete("/api/variants/{group_id}", dependencies=[Depends(auth)])
+def remove_variant(group_id: int, s: Store = Depends(get_store)):
+    s.delete_variant_group(group_id)
+    return {"ok":True}
+
+@app.delete("/api/variant-options/{option_id}", dependencies=[Depends(auth)])
+def remove_variant_option(option_id: int, s: Store = Depends(get_store)):
+    s.delete_variant_option(option_id)
+    return {"ok":True}
+
+@app.delete("/api/tabs/{tab_id}/variant-items/{variant_id}", dependencies=[Depends(waiter_auth)])
+def remove_variant_from_tab(tab_id: int, variant_id: int, s: Store = Depends(get_store)):
+    try:
+        s.remove_variant_item(tab_id,variant_id)
+        return {"ok":True}
+    except ValueError as exc: raise HTTPException(400,str(exc))
+
 
 @app.get("/api/tabs", dependencies=[Depends(waiter_auth)])
 def list_tabs(s: Store = Depends(get_store)):
@@ -461,7 +497,7 @@ def get_tab(tab_id: int, s: Store = Depends(get_store)):
 @app.post("/api/tabs/{tab_id}/items", dependencies=[Depends(waiter_auth)])
 def add_to_tab(tab_id: int, data: TabItemInput, s: Store = Depends(get_store)):
     try:
-        s.add_tab_item(tab_id, data.product_id)
+        s.add_tab_item(tab_id, data.product_id, data.choices)
         return {"ok": True}
     except ValueError as exc:
         raise HTTPException(400, str(exc))
@@ -583,9 +619,7 @@ def format_customer_receipt(tab_id: int, s: Store):
         "SELECT customer FROM tabs WHERE id=? AND closed IS NULL", (tab_id,)).fetchone()
     if not tab:
         raise ValueError("Comanda não encontrada ou já fechada.")
-    items = s.db.execute(
-        "SELECT name,price,quantity FROM tab_items WHERE tab_id=? ORDER BY name", (tab_id,)
-    ).fetchall()
+    items = list(s.db.execute("SELECT name,price,quantity FROM tab_items WHERE tab_id=? ORDER BY name",(tab_id,)).fetchall()) + list(s.db.execute("SELECT name || ' (' || choices || ')' AS name,price,quantity FROM tab_variant_items WHERE tab_id=? ORDER BY id",(tab_id,)).fetchall())
     if not items:
         raise ValueError("Comanda sem produtos.")
     width = 32
