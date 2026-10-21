@@ -39,13 +39,13 @@ async function renderTab(){
  let total=0;
  for(const item of items){
   total+=item.price*item.quantity;
-  if(item.sent_quantity){const line=document.createElement('div');line.className='line';line.textContent=item.sent_quantity+'× '+item.name+' — '+money(item.sent_quantity*item.price);sent.append(line)}
+  if(item.sent_quantity){const line=document.createElement('div');line.className='line';line.textContent=item.sent_quantity+'× '+item.name+(item.choices?' ('+item.choices+')':'')+' — '+money(item.sent_quantity*item.price);sent.append(line)}
   const qty=item.quantity-item.sent_quantity;
   if(qty>0){
    const line=document.createElement('div');line.className='line';
-   const label=document.createElement('span');label.textContent=qty+'× '+item.name+' — '+money(qty*item.price);
+   const label=document.createElement('span');label.textContent=qty+'× '+item.name+(item.choices?' ('+item.choices+')':'')+' — '+money(qty*item.price);
    const remove=document.createElement('button');remove.textContent='Retirar 1';remove.onclick=async()=>{
-    remove.disabled=true;try{await api('tabs/'+id+'/items/'+item.product_id,'DELETE');await renderTab();await loadTabs()}catch(e){message(e.message);remove.disabled=false}
+    remove.disabled=true;try{await api(item.variant_id?'tabs/'+id+'/variant-items/'+item.variant_id:'tabs/'+id+'/items/'+item.product_id,'DELETE');await renderTab();await loadTabs()}catch(e){message(e.message);remove.disabled=false}
    };line.append(label,remove);pending.append(line);
   }
  }
@@ -62,7 +62,7 @@ function renderProducts(){
   if(p.image){const img=document.createElement('img');img.alt=p.name;img.loading='lazy';img.src='/api/products/'+p.id+'/image';b.append(img)}
   const name=document.createElement('strong');name.textContent=p.name;
   const price=document.createElement('span');price.textContent=money(p.price)+(p.stock===0?' • Sem estoque':'');b.append(name,price);
-  b.onclick=async()=>{const id=active;b.disabled=true;try{await api('tabs/'+id+'/items','POST',{product_id:p.id});await renderTab();await loadTabs()}catch(e){message(e.message);b.disabled=false}};
+  b.onclick=async()=>{const id=active;b.disabled=true;try{const choices=await chooseVariants(p.id);if(choices===null)return;await api('tabs/'+id+'/items','POST',{product_id:p.id,choices});await renderTab();await loadTabs()}catch(e){message(e.message)}finally{b.disabled=false}};
   root.append(b);
  }
 }
@@ -80,3 +80,17 @@ $('send').onclick=async()=>{
 };
 window.addEventListener('beforeunload',e=>{if(pendingCount()>0){e.preventDefault();e.returnValue=''}});
 initialize();
+async function chooseVariants(productId){
+ const groups=await api('products/'+productId+'/variants');
+ const choices={};
+ for(const g of groups){
+  if(!g.options.length)throw Error('A variedade "'+g.name+'" não possui opções cadastradas.');
+  const text=g.options.map((o,i)=>(i+1)+' - '+o.name).join('\\n');
+  const answer=prompt(g.name+'\\n'+text+'\\nDigite o número da opção:');
+  if(answer===null)return null;
+  const index=Number(answer);
+  if(!Number.isInteger(index)||index<1||index>g.options.length)throw Error('Escolha inválida para '+g.name+'.');
+  choices[String(g.id)]=g.options[index-1].id;
+ }
+ return choices;
+}
