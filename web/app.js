@@ -369,29 +369,67 @@ $('printerSave').onclick=async()=>{
 };
 
 async function manageVariants(p){
- try{
-  let groups=await api('products/'+p.id+'/variants');
-  while(true){
-   const list=groups.map((g,i)=>(i+1)+'. '+g.name+': '+g.options.map(o=>o.name).join(', ')).join('\\n');
-   const action=prompt('Variedades de '+p.name+'\\n'+(list||'Nenhuma variedade cadastrada.')+'\\n\\n1 - Adicionar grupo\\n2 - Adicionar opção a um grupo\\n3 - Excluir opção\\n4 - Excluir grupo\\n0 - Sair');
-   if(action===null||action==='0')break;
-   if(action==='1'){
-    const name=prompt('Nome da variedade (ex.: Sabor do gin):');
-    if(name?.trim())await api('products/'+p.id+'/variants','POST',{name:name.trim()});
-   }else if(['2','3','4'].includes(action)){
-    const num=Number(prompt('Número do grupo:\\n'+list));
-    const group=groups[num-1];if(!group){alert('Grupo inválido.');continue}
-    if(action==='2'){
-     const name=prompt('Nome da opção (ex.: Limão):');
-     if(name?.trim())await api('variants/'+group.id+'/options','POST',{name:name.trim()});
-    }else if(action==='3'){
-     const n=Number(prompt('Número da opção:\\n'+group.options.map((o,i)=>(i+1)+' - '+o.name).join('\\n')));
-     if(group.options[n-1]&&confirm('Excluir esta opção?'))await api('variant-options/'+group.options[n-1].id,'DELETE');
-    }else if(confirm('Excluir o grupo '+group.name+' e suas opções?'))await api('variants/'+group.id,'DELETE');
+ const overlay=document.createElement('div');overlay.className='variant-overlay';
+ const panel=document.createElement('section');panel.className='variant-panel';panel.setAttribute('role','dialog');panel.setAttribute('aria-modal','true');panel.setAttribute('aria-label','Variedades de '+p.name);
+ const header=document.createElement('div');header.className='variant-header';
+ const picture=document.createElement('div');picture.className='variant-photo';
+ if(p.image){const img=document.createElement('img');img.src='/api/products/'+p.id+'/image';img.alt=p.name;picture.append(img)}
+ else picture.textContent='📦';
+ const heading=document.createElement('div');heading.className='variant-heading';
+ const title=document.createElement('h2');title.textContent=p.name;
+ const price=document.createElement('strong');price.textContent=money(p.price)+' • Todas as variedades sem custo adicional';
+ heading.append(title,price);
+ const close=document.createElement('button');close.type='button';close.textContent='✕ Fechar';close.className='variant-close';
+ header.append(picture,heading,close);
+ const status=document.createElement('p');status.className='variant-status';status.setAttribute('role','status');
+ const groupsBox=document.createElement('div');groupsBox.className='variant-groups';
+ const newGroup=document.createElement('form');newGroup.className='variant-form variant-new-group';
+ const groupInput=document.createElement('input');groupInput.placeholder='Ex.: Sabor do gin';groupInput.maxLength=80;groupInput.required=true;groupInput.setAttribute('aria-label','Nome do novo grupo');
+ const groupButton=document.createElement('button');groupButton.textContent='＋ Adicionar grupo';groupButton.type='submit';
+ newGroup.append(groupInput,groupButton);
+ panel.append(header,status,groupsBox,newGroup);overlay.append(panel);document.body.append(overlay);
+ const previousFocus=document.activeElement;
+ function dismiss(){document.removeEventListener('keydown',onKey);overlay.remove();previousFocus?.focus()}
+ function onKey(e){if(e.key==='Escape')dismiss();if(e.key==='Tab'){const controls=[...panel.querySelectorAll('button,input')].filter(el=>!el.disabled);const first=controls[0],last=controls[controls.length-1];if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus()}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus()}}}
+ document.addEventListener('keydown',onKey);close.onclick=dismiss;overlay.onclick=e=>{if(e.target===overlay)dismiss()};
+ let busy=false;
+ async function run(task){
+  if(busy)return;busy=true;status.textContent='Salvando...';
+  try{await task();await reload();status.textContent='Alteração salva com sucesso.'}
+  catch(e){status.textContent='Erro: '+e.message}
+  finally{busy=false}
+ }
+ async function reload(){
+  const groups=await api('products/'+p.id+'/variants');groupsBox.replaceChildren();
+  if(!groups.length){const empty=document.createElement('p');empty.className='hint';empty.textContent='Nenhuma variedade cadastrada. Crie seu primeiro grupo abaixo.';groupsBox.append(empty)}
+  for(const group of groups){
+   const card=document.createElement('section');card.className='variant-group';
+   const top=document.createElement('div');top.className='variant-group-top';
+   const label=document.createElement('h3');label.textContent=group.name;
+   const deleteGroup=document.createElement('button');deleteGroup.type='button';deleteGroup.className='danger';deleteGroup.textContent='Excluir grupo';
+   deleteGroup.onclick=()=>{if(confirm('Excluir o grupo '+group.name+' e todas as opções?'))run(()=>api('variants/'+group.id,'DELETE'))};
+   top.append(label,deleteGroup);card.append(top);
+   const list=document.createElement('div');list.className='variant-options';
+   for(const option of group.options){
+    const item=document.createElement('div');item.className='variant-option';
+    const name=document.createElement('span');name.textContent=option.name;
+    const remove=document.createElement('button');remove.type='button';remove.className='danger';remove.textContent='✕';remove.title='Excluir '+option.name;remove.setAttribute('aria-label','Excluir '+option.name);
+    remove.onclick=()=>{if(confirm('Excluir '+option.name+'?'))run(()=>api('variant-options/'+option.id,'DELETE'))};
+    item.append(name,remove);list.append(item)
    }
-   groups=await api('products/'+p.id+'/variants');
+   if(!group.options.length){const empty=document.createElement('p');empty.className='hint';empty.textContent='Nenhuma opção cadastrada.';list.append(empty)}
+   card.append(list);
+   const form=document.createElement('form');form.className='variant-form';
+   const input=document.createElement('input');input.placeholder='Novo sabor ou opção';input.maxLength=80;input.required=true;input.setAttribute('aria-label','Nova opção de '+group.name);
+   const add=document.createElement('button');add.type='submit';add.textContent='＋ Adicionar opção';
+   form.append(input,add);
+   form.onsubmit=e=>{e.preventDefault();const name=input.value.trim();if(name)run(()=>api('variants/'+group.id+'/options','POST',{name}))};
+   card.append(form);groupsBox.append(card)
   }
- }catch(e){alert('Erro nas variedades: '+e.message)}
+ }
+ newGroup.onsubmit=e=>{e.preventDefault();const name=groupInput.value.trim();if(name)run(()=>api('products/'+p.id+'/variants','POST',{name}))};
+ close.focus();
+ try{await reload()}catch(e){status.textContent='Erro ao carregar variedades: '+e.message}
 }
 async function chooseProductVariants(productId){
  const groups=await api('products/'+productId+'/variants'),choices={};
