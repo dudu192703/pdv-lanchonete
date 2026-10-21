@@ -182,6 +182,7 @@ class ImageInput(BaseModel):
 class SaleInput(BaseModel):
     cart: dict[int, int]
     payment: str
+    variants: list[dict] = Field(default_factory=list)
 
 @app.get("/")
 def home():
@@ -289,7 +290,7 @@ def movement(data: MovementInput, s: Store = Depends(get_store)):
 @app.post("/api/sales", dependencies=[Depends(auth)])
 def sale(data: SaleInput, s: Store = Depends(get_store)):
     try:
-        sale_id, total = s.sell(data.cart, data.payment)
+        sale_id, total = s.sell(data.cart, data.payment, data.variants)
         return {"id": sale_id, "total": total}
     except ValueError as exc:
         raise HTTPException(400, str(exc))
