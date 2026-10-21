@@ -75,6 +75,49 @@ class Store:
             id INTEGER PRIMARY KEY, tab_id INTEGER NOT NULL REFERENCES tabs(id),
             created TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, content TEXT NOT NULL)""")
 
+        self.db.executescript("""
+            CREATE TABLE IF NOT EXISTS variant_groups (id INTEGER PRIMARY KEY, product_id INTEGER NOT NULL REFERENCES products(id), name TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS variant_options (id INTEGER PRIMARY KEY, group_id INTEGER NOT NULL REFERENCES variant_groups(id) ON DELETE CASCADE, name TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS tab_variant_items (id INTEGER PRIMARY KEY, tab_id INTEGER NOT NULL REFERENCES tabs(id), product_id INTEGER NOT NULL REFERENCES products(id), name TEXT NOT NULL, price INTEGER NOT NULL, choices TEXT NOT NULL, quantity INTEGER NOT NULL DEFAULT 1, sent_quantity INTEGER NOT NULL DEFAULT 0, UNIQUE(tab_id,product_id,choices));
+        """)
+
+
+    def variant_groups(self, product_id):
+        groups = self.db.execute("SELECT id,name FROM variant_groups WHERE product_id=? ORDER BY id",(product_id,)).fetchall()
+        return [{"id":g["id"],"name":g["name"],"options":[dict(o) for o in self.db.execute("SELECT id,name FROM variant_options WHERE group_id=? ORDER BY id",(g["id"],))]} for g in groups]
+
+    def add_variant_group(self, product_id, name):
+        name=name.strip()
+        if not name or len(name)>80: raise ValueError("Nome inválido.")
+        with self.db:
+            if not self.db.execute("SELECT 1 FROM products WHERE id=? AND active=1",(product_id,)).fetchone(): raise ValueError("Produto não encontrado.")
+            return self.db.execute("INSERT INTO variant_groups(product_id,name) VALUES (?,?)",(product_id,name)).lastrowid
+
+    def add_variant_option(self, group_id, name):
+        name=name.strip()
+        if not name or len(name)>80: raise ValueError("Nome inválido.")
+        with self.db:
+            if not self.db.execute("SELECT 1 FROM variant_groups WHERE id=?",(group_id,)).fetchone(): raise ValueError("Variedade não encontrada.")
+            return self.db.execute("INSERT INTO variant_options(group_id,name) VALUES (?,?)",(group_id,name)).lastrowid
+
+    def delete_variant_group(self, group_id):
+        with self.db: self.db.execute("DELETE FROM variant_groups WHERE id=?",(group_id,))
+
+    def delete_variant_option(self, option_id):
+        with self.db: self.db.execute("DELETE FROM variant_options WHERE id=?",(option_id,))
+
+    def variant_label(self, product_id, choices):
+        groups=self.variant_groups(product_id)
+        if not groups:
+            if choices: raise ValueError("Produto sem variedades.")
+            return ""
+        if not isinstance(choices,dict) or set(choices)!={str(g["id"]) for g in groups}: raise ValueError("Escolha todas as variedades.")
+        result=[]
+        for g in groups:
+            option=next((o for o in g["options"] if o["id"]==choices[str(g["id"])]),None)
+            if option is None: raise ValueError("Opção inválida.")
+            result.append(g["name"]+": "+option["name"])
+        return " | ".join(result)
 
     def cancel_sale(self, sale_id):
         self.db.execute("BEGIN IMMEDIATE")
