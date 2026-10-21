@@ -52,3 +52,24 @@
 .tab-checkout .print-bill{display:block;width:100%;margin-bottom:10px;background:#d18b17;color:#10161c}
 
 nav .comandas-link{display:block;text-decoration:none;text-align:left;background:#203040;color:#f4f7fa;font-weight:650;border-radius:9px;padding:13px}nav .comandas-link:hover{filter:brightness(1.15)}
+
+/* Gerenciador visual de variedades */
+.variant-overlay{position:fixed;inset:0;z-index:9999;background:rgba(3,9,16,.78);display:flex;align-items:center;justify-content:center;padding:16px}
+.variant-panel{background:#142331;color:#f4f7fa;border:1px solid #3b5060;border-radius:18px;width:min(760px,100%);max-height:92vh;overflow-y:auto;padding:22px;box-shadow:0 22px 80px #0009}
+.variant-header{display:flex;align-items:center;gap:16px;margin-bottom:14px}
+.variant-photo{width:94px;height:94px;flex:0 0 94px;border-radius:12px;background:#243746;display:grid;place-items:center;font-size:36px;overflow:hidden}
+.variant-photo img{width:100%;height:100%;object-fit:cover}
+.variant-heading{flex:1;min-width:0}.variant-heading h2{margin:0 0 7px;overflow-wrap:anywhere}.variant-heading strong{color:#ffc039;font-size:14px}
+.variant-close{align-self:flex-start;white-space:nowrap}
+.variant-status{min-height:22px;color:#bdd7e3}
+.variant-groups{display:grid;gap:14px;margin:14px 0}
+.variant-group{background:#1c3040;border:1px solid #3b5060;border-radius:13px;padding:15px}
+.variant-group-top{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px}.variant-group-top h3{margin:0}
+.variant-options{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
+.variant-option{display:flex;align-items:center;gap:8px;border:1px solid #4a6172;border-radius:9px;background:#283e4e;padding:5px 6px 5px 12px}
+.variant-option button{padding:5px 10px;min-height:34px}
+.variant-form{display:flex;gap:9px;align-items:stretch}
+.variant-form input{flex:1;min-width:0;padding:12px;border-radius:9px;border:1px solid #597083;background:#101f2c;color:#fff;font-size:15px}
+.variant-form button{white-space:nowrap}
+.variant-new-group{border-top:1px solid #3b5060;padding-top:18px}
+@media(max-width:600px){.variant-panel{padding:14px;max-height:96vh}.variant-header{flex-wrap:wrap}.variant-photo{width:70px;height:70px;flex-basis:70px}.variant-heading h2{font-size:20px}.variant-close{margin-left:auto}.variant-form{flex-direction:column}.variant-form button{width:100%}.variant-group-top{align-items:flex-start}.variant-group-top button{font-size:12px}}
