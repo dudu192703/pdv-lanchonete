@@ -13,3 +13,8 @@
 .choice-footer{margin-top:20px}.choice-footer button{width:100%;background:#344e64}
 .choice-footer button[hidden]{display:none}
 @media(max-width:380px){.choice-dialog{padding:14px}.choice-options{gap:9px}.choice-option{font-size:16px;min-height:70px}.choice-group-name{font-size:20px}}
+
+/* Centralizar sempre a escolha na área visível do celular, sem rolar a página */
+.choice-overlay{position:fixed!important;top:0!important;left:0!important;width:100vw!important;height:100dvh!important;inset:0!important;display:flex!important;align-items:center!important;justify-content:center!important;overflow:hidden;overscroll-behavior:contain}
+.choice-dialog{position:relative;margin:auto;max-height:calc(100dvh - 28px);overscroll-behavior:contain}
+body:has(.choice-overlay){overflow:hidden}
