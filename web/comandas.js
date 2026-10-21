@@ -144,3 +144,8 @@ async function chooseVariants(productId){
   renderStep();
  });
 }
+
+async function loadWaiterBrand(){
+ try{const r=await fetch('/api/establishment',{credentials:'same-origin'});if(!r.ok)return;const brand=await r.json();$('waiterBrandName').textContent=brand.name}catch(e){}
+}
+loadWaiterBrand();
