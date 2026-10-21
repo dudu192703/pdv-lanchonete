@@ -130,7 +130,7 @@ $('open').onclick=()=>{const amount=askAmount('Abertura');if(amount!==null)act('
 $('close').onclick=()=>{const amount=askAmount('Dinheiro contado no fechamento');if(amount!==null&&confirm('Confirmar fechamento?'))act('close',{amount})};
 async function movement(kind){const amount=askAmount(kind);if(amount===null)return;const note=prompt('Motivo:');if(note!==null)await act('movement',{kind,amount,note})}
 $('withdraw').onclick=()=>movement('Sangria');$('supply').onclick=()=>movement('Suprimento');
-document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=async()=>{document.querySelectorAll('[data-tab]').forEach(x=>x.classList.toggle('selected',x===b));document.querySelectorAll('.page').forEach(x=>x.classList.toggle('active',x.id===b.dataset.tab));if(b.dataset.tab==='estoque')await refreshInventory();if(b.dataset.tab==='vendas')await loadSales();if(b.dataset.tab==='comandas')await loadTabs();if(b.dataset.tab==='configuracoes')await loadPrinterSettings()});refresh();
+document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=async()=>{document.querySelectorAll('[data-tab]').forEach(x=>x.classList.toggle('selected',x===b));document.querySelectorAll('.page').forEach(x=>x.classList.toggle('active',x.id===b.dataset.tab));if(b.dataset.tab==='estoque')await refreshInventory();if(b.dataset.tab==='vendas')await loadSales();if(b.dataset.tab==='comandas')await loadTabs();if(b.dataset.tab==='configuracoes'){await loadPrinterSettings();await loadEstablishment()}});refresh();
 
 const selectedSalesProducts=new Set();
 let salesAllProducts=true;
@@ -443,3 +443,39 @@ async function chooseProductVariants(productId){
  }
  return choices;
 }
+
+async function loadEstablishment(){
+ const status=$('establishmentStatus');
+ try{
+  const data=await api('establishment');
+  $('establishmentName').value=data.name;
+  const preview=$('establishmentLogoPreview');
+  preview.hidden=!data.logo;
+  if(data.logo)preview.src='/api/establishment/logo?t='+Date.now();
+  $('establishmentLogoRemove').disabled=!data.logo;
+  const header=$('establishmentHeader');
+  header.replaceChildren();
+  if(data.logo){const img=document.createElement('img');img.src='/api/establishment/logo?t='+Date.now();img.alt='Logo';img.className='establishment-header-logo';header.append(img)}
+  const title=document.createElement('span');title.textContent=data.name;header.append(title);
+  status.textContent='';
+ }catch(e){status.textContent='Erro ao carregar estabelecimento: '+e.message}
+}
+$('establishmentForm').onsubmit=async e=>{
+ e.preventDefault();const button=e.currentTarget.querySelector('button');button.disabled=true;
+ try{await api('settings/establishment','PUT',{name:$('establishmentName').value.trim()});await loadEstablishment();$('establishmentStatus').textContent='Nome salvo com sucesso.'}
+ catch(err){$('establishmentStatus').textContent=err.message}finally{button.disabled=false}
+};
+$('establishmentLogoFile').onchange=async e=>{
+ const file=e.target.files[0];if(!file)return;
+ try{
+  if(file.size>4000000)throw Error('A logo deve ter no máximo 4 MB.');
+  const data=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onerror=()=>reject(Error('Erro ao ler a logo.'));reader.onload=()=>resolve(reader.result.split(',')[1]);reader.readAsDataURL(file)});
+  await api('settings/establishment/logo','PUT',{data});await loadEstablishment();$('establishmentStatus').textContent='Logo salva com sucesso.';
+ }catch(err){$('establishmentStatus').textContent=err.message}finally{e.target.value=''}
+};
+$('establishmentLogoRemove').onclick=async()=>{
+ if(!confirm('Remover a logo do estabelecimento?'))return;
+ try{await api('settings/establishment/logo','DELETE');await loadEstablishment();$('establishmentStatus').textContent='Logo removida.'}
+ catch(err){$('establishmentStatus').textContent=err.message}
+};
+loadEstablishment();
