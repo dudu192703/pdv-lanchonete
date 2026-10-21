@@ -387,7 +387,7 @@ class Store:
             for item in variant_items:
                 text += str(item["quantity"]-item["sent_quantity"])+"x "+item["name"]+"\n"
                 for choice in item["choices"].split(" | "):
-                    text += "  "+choice+"\\n"
+                    text += "  "+choice+"\n"
             printer(text)
             for item in items:
                 self.db.execute(
