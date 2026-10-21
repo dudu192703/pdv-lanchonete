@@ -39,6 +39,8 @@ def valid_password(value):
 SESSIONS = {}
 FAILED = defaultdict(list)
 SESSION_SECONDS = 8 * 60 * 60
+WAITER_PASSWORD = os.getenv("PDV_WAITER_PASSWORD", "")
+WAITER_SESSIONS = {}
 
 app = FastAPI(title="PDV Lanchonete", docs_url=None, redoc_url=None)
 app.mount("/static", StaticFiles(directory=BASE / "web"), name="static")
@@ -56,6 +58,60 @@ def auth(request: Request):
         if origin and origin.rstrip("/") != str(request.base_url).rstrip("/"):
             raise HTTPException(403, "Origem não autorizada.")
     SESSIONS[sid] = time.time() + SESSION_SECONDS
+
+def waiter_auth(request: Request):
+    """Aceita caixa ou garçom, mantendo endpoints financeiros só para o caixa."""
+    try:
+        return auth(request)
+    except HTTPException as exc:
+        if exc.status_code != 401:
+            raise
+    sid = request.cookies.get("pdv_waiter", "")
+    if not sid or WAITER_SESSIONS.get(sid, 0) < time.time():
+        raise HTTPException(401, "Faça login como garçom.")
+    if request.method not in ("GET", "HEAD", "OPTIONS"):
+        if request.headers.get("X-PDV-Request") != "1":
+            raise HTTPException(403, "Requisição não autorizada.")
+        origin = request.headers.get("origin")
+        if origin and origin.rstrip("/") != str(request.base_url).rstrip("/"):
+            raise HTTPException(403, "Origem não autorizada.")
+    WAITER_SESSIONS[sid] = time.time() + SESSION_SECONDS
+
+
+class WaiterLoginInput(BaseModel):
+    password: str
+
+
+@app.post("/api/waiter/login")
+def waiter_login(data: WaiterLoginInput, request: Request, response: Response):
+    if not WAITER_PASSWORD:
+        raise HTTPException(503, "Configure PDV_WAITER_PASSWORD no servidor.")
+    if not secrets.compare_digest(data.password, WAITER_PASSWORD):
+        raise HTTPException(401, "Senha do garçom incorreta.")
+    sid = secrets.token_urlsafe(32)
+    WAITER_SESSIONS[sid] = time.time() + SESSION_SECONDS
+    response.set_cookie("pdv_waiter", sid, httponly=True, samesite="strict",
+                        secure=request.url.scheme == "https", max_age=SESSION_SECONDS, path="/")
+    return {"ok": True}
+
+
+@app.post("/api/waiter/logout", dependencies=[Depends(waiter_auth)])
+def waiter_logout(request: Request, response: Response):
+    WAITER_SESSIONS.pop(request.cookies.get("pdv_waiter"), None)
+    response.delete_cookie("pdv_waiter", path="/")
+    return {"ok": True}
+
+
+@app.get("/api/waiter/products", dependencies=[Depends(waiter_auth)])
+def waiter_products(s: Store = Depends(get_store)):
+    return [{"id": p["id"], "name": p["name"], "price": p["price"],
+             "image": bool(p["image"]), "stock": p["stock"]} for p in s.products()]
+
+
+@app.get("/comandas")
+def waiter_page():
+    return FileResponse(BASE / "web" / "comandas.html")
+
 
 def get_store():
     """Uma conexão SQLite independente por requisição, fechada após o uso."""
@@ -168,7 +224,7 @@ def update_stock(product_id: int, data: StockInput, s: Store = Depends(get_store
     except ValueError as exc:
         raise HTTPException(400, str(exc))
 
-@app.put("/api/products/{product_id}/image", dependencies=[Depends(auth)])
+@app.put("/api/products/{product_id}/image", dependencies=[Depends(waiter_auth)])
 def upload_product_image(product_id: int, payload: ImageInput, s: Store = Depends(get_store)):
     if len(payload.data) > 6_000_000:
         raise HTTPException(413, "Imagem muito grande (máximo 4 MB).")
@@ -195,7 +251,7 @@ def upload_product_image(product_id: int, payload: ImageInput, s: Store = Depend
     s.set_product_image(product_id, filename)
     return {"ok": True}
 
-@app.get("/api/products/{product_id}/image", dependencies=[Depends(auth)])
+@app.get("/api/products/{product_id}/image", dependencies=[Depends(waiter_auth)])
 def product_image(product_id: int, s: Store = Depends(get_store)):
     row = s.db.execute("SELECT image FROM products WHERE id=?", (product_id,)).fetchone()
     if not row or not row["image"]:
@@ -375,25 +431,25 @@ class TabItemInput(BaseModel):
 class TabCloseInput(BaseModel):
     payment: str
 
-@app.get("/api/tabs", dependencies=[Depends(auth)])
+@app.get("/api/tabs", dependencies=[Depends(waiter_auth)])
 def list_tabs(s: Store = Depends(get_store)):
     return s.tabs()
 
-@app.post("/api/tabs", dependencies=[Depends(auth)])
+@app.post("/api/tabs", dependencies=[Depends(waiter_auth)])
 def new_tab(data: TabInput, s: Store = Depends(get_store)):
     try:
         return {"id": s.create_tab(data.customer)}
     except ValueError as exc:
         raise HTTPException(400, str(exc))
 
-@app.get("/api/tabs/{tab_id}", dependencies=[Depends(auth)])
+@app.get("/api/tabs/{tab_id}", dependencies=[Depends(waiter_auth)])
 def get_tab(tab_id: int, s: Store = Depends(get_store)):
     try:
         return s.tab_items(tab_id)
     except ValueError as exc:
         raise HTTPException(404, str(exc))
 
-@app.post("/api/tabs/{tab_id}/items", dependencies=[Depends(auth)])
+@app.post("/api/tabs/{tab_id}/items", dependencies=[Depends(waiter_auth)])
 def add_to_tab(tab_id: int, data: TabItemInput, s: Store = Depends(get_store)):
     try:
         s.add_tab_item(tab_id, data.product_id)
@@ -401,7 +457,7 @@ def add_to_tab(tab_id: int, data: TabItemInput, s: Store = Depends(get_store)):
     except ValueError as exc:
         raise HTTPException(400, str(exc))
 
-@app.delete("/api/tabs/{tab_id}/items/{product_id}", dependencies=[Depends(auth)])
+@app.delete("/api/tabs/{tab_id}/items/{product_id}", dependencies=[Depends(waiter_auth)])
 def remove_from_tab(tab_id: int, product_id: int, s: Store = Depends(get_store)):
     try:
         s.remove_tab_item(tab_id, product_id)
@@ -501,7 +557,7 @@ def print_kitchen_raw(content: str, printer_name: str):
     finally:
         winspool.ClosePrinter(handle)
 
-@app.post("/api/tabs/{tab_id}/kitchen", dependencies=[Depends(auth)])
+@app.post("/api/tabs/{tab_id}/kitchen", dependencies=[Depends(waiter_auth)])
 def send_tab_to_kitchen(tab_id: int, s: Store = Depends(get_store)):
     try:
         row = s.db.execute("SELECT value FROM settings WHERE key='kitchen_printer'").fetchone()
