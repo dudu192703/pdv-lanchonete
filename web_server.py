@@ -118,10 +118,44 @@ def waiter_logout(request: Request, response: Response):
     return {"ok": True}
 
 
+class WaiterCategoryInput(BaseModel):
+    name: str = Field(min_length=1,max_length=60)
+
+class ProductCategoryInput(BaseModel):
+    category_id: int | None = None
+
+@app.get("/api/waiter/categories", dependencies=[Depends(waiter_auth)])
+def list_waiter_categories(s: Store = Depends(get_store)):
+    return s.waiter_categories()
+
+@app.post("/api/waiter/categories", dependencies=[Depends(auth)])
+def add_waiter_category(data: WaiterCategoryInput, s: Store = Depends(get_store)):
+    try:
+        return {"id":s.create_waiter_category(data.name)}
+    except ValueError as exc:
+        raise HTTPException(400,str(exc))
+
+@app.delete("/api/waiter/categories/{category_id}", dependencies=[Depends(auth)])
+def delete_waiter_category(category_id: int, s: Store = Depends(get_store)):
+    try:
+        s.delete_waiter_category(category_id)
+        return {"ok":True}
+    except ValueError as exc:
+        raise HTTPException(400,str(exc))
+
+@app.put("/api/products/{product_id}/waiter-category", dependencies=[Depends(auth)])
+def assign_waiter_category(product_id: int, data: ProductCategoryInput, s: Store = Depends(get_store)):
+    try:
+        s.set_waiter_category(product_id,data.category_id)
+        return {"ok":True}
+    except ValueError as exc:
+        raise HTTPException(400,str(exc))
+
+
 @app.get("/api/waiter/products", dependencies=[Depends(waiter_auth)])
 def waiter_products(s: Store = Depends(get_store)):
     return [{"id": p["id"], "name": p["name"], "price": p["price"],
-             "image": bool(p["image"]), "stock": p["stock"]} for p in s.products()]
+             "image": bool(p["image"]), "stock": p["stock"], "category_id": p["category_id"]} for p in s.products()]
 
 
 @app.get("/comandas")
