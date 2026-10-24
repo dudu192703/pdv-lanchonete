@@ -1,6 +1,6 @@
 const $=id=>document.getElementById(id);
 const money=n=>(n/100).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
-let products=[],tabs=[],active=null,items=[],busy=false;
+let products=[],tabs=[],active=null,items=[],busy=false,categories=[];
 async function api(path,method='GET',body){
  const r=await fetch('/api/'+path,{method,credentials:'same-origin',headers:{'X-PDV-Request':'1','Content-Type':'application/json'},body:body===undefined?undefined:JSON.stringify(body)});
  const j=await r.json().catch(()=>({}));if(!r.ok)throw Error(j.detail||'Erro '+r.status);return j;
@@ -9,7 +9,7 @@ function message(s){$('message').textContent=s}
 function pendingCount(){return items.reduce((n,i)=>n+Math.max(0,i.quantity-i.sent_quantity),0)}
 function switchWarning(){return active!==null&&pendingCount()>0&&!confirm('Atenção! Existem '+pendingCount()+' pedido(s) pendente(s) de envio à cozinha nesta comanda. Deseja trocar mesmo assim?')}
 async function initialize(){
- try{products=await api('waiter/products');$('loginPanel').hidden=true;$('workspace').hidden=false;await loadTabs();message('')}
+ try{[products,categories]=await Promise.all([api('waiter/products'),api('waiter/categories')]);$('loginPanel').hidden=true;$('workspace').hidden=false;await loadTabs();message('')}
  catch(e){$('loginPanel').hidden=false;$('workspace').hidden=true;message(e.message)}
 }
 $('loginForm').onsubmit=async e=>{e.preventDefault();try{await api('waiter/login','POST',{password:$('password').value});$('password').value='';await initialize()}catch(err){message(err.message)}};
@@ -56,15 +56,28 @@ async function renderTab(){
  renderProducts();
 }
 function renderProducts(){
- const root=$('products');root.replaceChildren();const query=$('search').value.toLocaleLowerCase('pt-BR');
- for(const p of products.filter(p=>p.name.toLocaleLowerCase('pt-BR').includes(query))){
+ const root=$('products');root.replaceChildren();
+ const query=$('search').value.trim().toLocaleLowerCase('pt-BR');
+ const filtered=products.filter(p=>p.name.toLocaleLowerCase('pt-BR').includes(query));
+ const groups=[...categories.map(c=>({id:c.id,name:c.name})),{id:null,name:'Sem categoria'}];
+ for(const group of groups){
+  const matches=filtered.filter(p=>(p.category_id??null)===group.id);
+  if(!matches.length)continue;
+  const section=document.createElement('section');section.className='waiter-category';
+  const heading=document.createElement('h4');heading.textContent=group.name+' ('+matches.length+')';
+  const grid=document.createElement('div');grid.className='waiter-category-grid';
+  section.append(heading,grid);
+  for(const p of matches){
   const b=document.createElement('button');b.className='product';b.disabled=p.stock===0;
   if(p.image){const img=document.createElement('img');img.alt=p.name;img.loading='lazy';img.src='/api/products/'+p.id+'/image';b.append(img)}
   const name=document.createElement('strong');name.textContent=p.name;
   const price=document.createElement('span');price.textContent=money(p.price)+(p.stock===0?' • Sem estoque':'');b.append(name,price);
   b.onclick=async()=>{const id=active,scrollY=window.scrollY;b.disabled=true;try{const choices=await chooseVariants(p.id);if(choices===null)return;await api('tabs/'+id+'/items','POST',{product_id:p.id,choices});await renderTab();await loadTabs();window.scrollTo({top:scrollY,behavior:'instant'})}catch(e){message(e.message)}finally{b.disabled=false}};
-  root.append(b);
+  grid.append(b);
+  }
+  root.append(section);
  }
+ if(!filtered.length)root.textContent='Nenhum produto encontrado.';
 }
 $('search').oninput=renderProducts;
 $('newForm').onsubmit=async e=>{
