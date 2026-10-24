@@ -130,7 +130,7 @@ $('open').onclick=()=>{const amount=askAmount('Abertura');if(amount!==null)act('
 $('close').onclick=()=>{const amount=askAmount('Dinheiro contado no fechamento');if(amount!==null&&confirm('Confirmar fechamento?'))act('close',{amount})};
 async function movement(kind){const amount=askAmount(kind);if(amount===null)return;const note=prompt('Motivo:');if(note!==null)await act('movement',{kind,amount,note})}
 $('withdraw').onclick=()=>movement('Sangria');$('supply').onclick=()=>movement('Suprimento');
-document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=async()=>{document.querySelectorAll('[data-tab]').forEach(x=>x.classList.toggle('selected',x===b));document.querySelectorAll('.page').forEach(x=>x.classList.toggle('active',x.id===b.dataset.tab));if(b.dataset.tab==='estoque')await refreshInventory();if(b.dataset.tab==='vendas')await loadSales();if(b.dataset.tab==='comandas')await loadTabs();if(b.dataset.tab==='configuracoes'){await loadPrinterSettings();await loadEstablishment()}});refresh();
+document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=async()=>{document.querySelectorAll('[data-tab]').forEach(x=>x.classList.toggle('selected',x===b));document.querySelectorAll('.page').forEach(x=>x.classList.toggle('active',x.id===b.dataset.tab));if(b.dataset.tab==='estoque')await refreshInventory();if(b.dataset.tab==='custos')await loadCosts();if(b.dataset.tab==='vendas')await loadSales();if(b.dataset.tab==='comandas')await loadTabs();if(b.dataset.tab==='configuracoes'){await loadPrinterSettings();await loadEstablishment()}});refresh();
 
 const selectedSalesProducts=new Set();
 let salesAllProducts=true;
@@ -479,3 +479,29 @@ $('establishmentLogoRemove').onclick=async()=>{
  catch(err){$('establishmentStatus').textContent=err.message}
 };
 loadEstablishment();
+
+async function loadCosts(){
+ const root=$('costList');root.replaceChildren();
+ try{
+  const items=await api('costs');
+  $('costSummary').textContent=items.length+' produtos cadastrados';
+  for(const p of items){
+   const row=document.createElement('div');row.className='cost-row';
+   const name=document.createElement('strong');name.textContent=p.name;
+   const sale=document.createElement('span');sale.textContent='Venda: '+money(p.price);
+   const input=document.createElement('input');input.type='number';input.min='0';input.step='0.01';input.placeholder='Custo em R$';input.value=p.cost===null?'':(p.cost/100).toFixed(2);
+   const profit=document.createElement('span');profit.className='cost-profit';
+   function show(){profit.textContent=p.cost===null?'Custo não informado':'Lucro bruto: '+money(p.price-p.cost)}
+   show();
+   const save=document.createElement('button');save.textContent='Salvar';
+   save.onclick=async()=>{
+    if(input.value.trim()===''||Number(input.value)<0)return alert('Informe o custo.');
+    save.disabled=true;
+    try{const result=await api('products/'+p.id+'/cost','PUT',{cost:input.value});p.cost=result.cost;show();$('costStatus').textContent='Custo salvo: '+p.name}
+    catch(e){$('costStatus').textContent=e.message}
+    finally{save.disabled=false}
+   };
+   row.append(name,sale,input,profit,save);root.append(row);
+  }
+ }catch(e){$('costStatus').textContent=e.message}
+}
