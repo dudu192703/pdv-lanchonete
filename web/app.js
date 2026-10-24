@@ -243,23 +243,13 @@ let checkoutTab=null;
 async function loadTabs(){
  try{
   const tabs=await api('tabs'),root=$('tabList');root.replaceChildren();
+  if(!tabs.length)root.textContent='Nenhuma comanda aberta no momento.';
   for(const tab of tabs){
-   const row=document.createElement('div');row.className='tab-row';
-   const open=document.createElement('button');open.textContent=tab.customer+' • '+money(tab.total);
-   open.onclick=()=>showTab(tab.id,tab.customer);
-   const kitchen=document.createElement('button');kitchen.textContent='🖨 Enviar para cozinha';kitchen.className='kitchen-send';
-   kitchen.onclick=async()=>{
-    if(!confirm('Confirmar envio dos novos produtos da comanda de '+tab.customer+' para a cozinha?'))return;
-    kitchen.disabled=true;
-    try{
-     const result=await api('tabs/'+tab.id+'/kitchen','POST',{});
-     alert('Pedido enviado à impressora da cozinha ('+result.items+' unidade(s)).');
-     if(activeTab===tab.id)await showTab(tab.id,tab.customer);
-    }catch(e){alert('Não foi possível enviar: '+e.message)}
-    finally{kitchen.disabled=false}
-   };
-   const close=document.createElement('button');close.textContent='Fechar conta';close.onclick=()=>closeTab(tab.id,tab.customer);
-   row.append(open,kitchen,close);root.append(row);
+   const button=document.createElement('button');
+   button.className='tab-row checkout-list-button';
+   button.textContent=tab.customer+' • '+money(tab.total)+' • Conferir e fechar';
+   button.onclick=()=>closeTab(tab.id,tab.customer);
+   root.append(button);
   }
   if(!tabs.some(t=>t.id===activeTab)){$('tabDetail').replaceChildren();activeTab=null}
  }catch(e){$('tabList').textContent=e.message}
@@ -302,11 +292,11 @@ async function closeTab(id,customer){
   checkoutTab=id;
   const total=items.reduce((n,i)=>n+i.price*i.quantity,0);
   const root=$('tabCheckout');root.replaceChildren();root.hidden=false;
-  const heading=document.createElement('h3');heading.textContent='Pagamento — '+customer;
+  const heading=document.createElement('h3');heading.textContent='Conferir conta — '+customer;
   const summary=document.createElement('div');summary.className='tab-checkout-lines';
   for(const item of items){const row=document.createElement('div');row.textContent=item.quantity+'× '+item.name+' — '+money(item.price*item.quantity);summary.append(row)}
   const sum=document.createElement('strong');sum.textContent='Total: '+money(total);
-  const label=document.createElement('h4');label.textContent='Forma de pagamento';
+  const label=document.createElement('h4');label.textContent='Forma de pagamento (após conferir a conta)';
   const methods=document.createElement('div');methods.className='tab-payments';
   const submit=document.createElement('button');submit.className='finish';submit.textContent='✓ FINALIZAR PAGAMENTO';
   const cancel=document.createElement('button');cancel.textContent='Voltar para comanda';
