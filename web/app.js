@@ -486,7 +486,7 @@ async function loadCosts(){
   const items=await api('costs');
   $('costSummary').textContent=items.length+' produtos cadastrados';
   for(const p of items){
-   const row=document.createElement('div');row.className='cost-row';
+   const row=document.createElement('div');row.className='cost-row';row.dataset.costName=p.name.toLocaleLowerCase('pt-BR');
    const name=document.createElement('strong');name.textContent=p.name;
    const sale=document.createElement('span');sale.textContent='Venda: '+money(p.price);
    const input=document.createElement('input');input.type='number';input.min='0';input.step='0.01';input.placeholder='Custo em R$';input.value=p.cost===null?'':(p.cost/100).toFixed(2);
@@ -505,3 +505,5 @@ async function loadCosts(){
   }
  }catch(e){$('costStatus').textContent=e.message}
 }
+
+$('costSearch').oninput=()=>{const q=$('costSearch').value.toLocaleLowerCase('pt-BR');document.querySelectorAll('.cost-row').forEach(row=>{row.hidden=!row.dataset.costName.includes(q)})};
