@@ -130,7 +130,7 @@ $('open').onclick=()=>{const amount=askAmount('Abertura');if(amount!==null)act('
 $('close').onclick=()=>{const amount=askAmount('Dinheiro contado no fechamento');if(amount!==null&&confirm('Confirmar fechamento?'))act('close',{amount})};
 async function movement(kind){const amount=askAmount(kind);if(amount===null)return;const note=prompt('Motivo:');if(note!==null)await act('movement',{kind,amount,note})}
 $('withdraw').onclick=()=>movement('Sangria');$('supply').onclick=()=>movement('Suprimento');
-document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=async()=>{document.querySelectorAll('[data-tab]').forEach(x=>x.classList.toggle('selected',x===b));document.querySelectorAll('.page').forEach(x=>x.classList.toggle('active',x.id===b.dataset.tab));if(b.dataset.tab==='estoque')await refreshInventory();if(b.dataset.tab==='custos')await loadCosts();if(b.dataset.tab==='vendas')await loadSales();if(b.dataset.tab==='comandas')await loadTabs();if(b.dataset.tab==='configuracoes'){await loadPrinterSettings();await loadEstablishment()}});refresh();
+document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=async()=>{document.querySelectorAll('[data-tab]').forEach(x=>x.classList.toggle('selected',x===b));document.querySelectorAll('.page').forEach(x=>x.classList.toggle('active',x.id===b.dataset.tab));if(b.dataset.tab==='estoque')await refreshInventory();if(b.dataset.tab==='custos')await loadCosts();if(b.dataset.tab==='organizacao')await loadWaiterOrganization();if(b.dataset.tab==='vendas')await loadSales();if(b.dataset.tab==='comandas')await loadTabs();if(b.dataset.tab==='configuracoes'){await loadPrinterSettings();await loadEstablishment()}});refresh();
 
 const selectedSalesProducts=new Set();
 let salesAllProducts=true;
@@ -512,3 +512,54 @@ async function loadCosts(){
 }
 
 $('costSearch').oninput=()=>{const q=$('costSearch').value.toLocaleLowerCase('pt-BR');document.querySelectorAll('.cost-row').forEach(row=>{row.hidden=!row.dataset.costName.includes(q)})};
+
+let waiterCategories=[];
+async function loadWaiterOrganization(){
+ try{
+  waiterCategories=await api('waiter/categories');
+  const state=await api('state');products=state.products;
+  renderWaiterOrganization();
+  $('categoryStatus').textContent='';
+ }catch(e){$('categoryStatus').textContent='Erro ao carregar: '+e.message}
+}
+function renderWaiterOrganization(){
+ const categories=$('categoryList');categories.replaceChildren();
+ for(const c of waiterCategories){
+  const row=document.createElement('div');row.className='category-row';
+  const name=document.createElement('strong');name.textContent=c.name;
+  const count=document.createElement('span');count.textContent=products.filter(p=>p.category_id===c.id).length+' produto(s)';
+  const remove=document.createElement('button');remove.className='danger';remove.textContent='Excluir';
+  remove.onclick=async()=>{
+   if(!confirm('Excluir a categoria '+c.name+'? Os produtos voltarão para Sem categoria.'))return;
+   remove.disabled=true;
+   try{await api('waiter/categories/'+c.id,'DELETE');await loadWaiterOrganization()}
+   catch(e){$('categoryStatus').textContent=e.message;remove.disabled=false}
+  };
+  row.append(name,count,remove);categories.append(row);
+ }
+ if(!waiterCategories.length)categories.textContent='Nenhuma categoria criada ainda.';
+ const list=$('categoryProducts');list.replaceChildren();
+ const query=$('categorySearch').value.trim().toLocaleLowerCase('pt-BR');
+ for(const p of products.filter(p=>p.name.toLocaleLowerCase('pt-BR').includes(query))){
+  const row=document.createElement('div');row.className='category-row';
+  const name=document.createElement('span');name.textContent=p.name;
+  const select=document.createElement('select');select.setAttribute('aria-label','Categoria de '+p.name);
+  select.add(new Option('Sem categoria',''));
+  for(const c of waiterCategories)select.add(new Option(c.name,String(c.id)));
+  select.value=p.category_id===null?'':String(p.category_id);
+  select.onchange=async()=>{
+   select.disabled=true;
+   try{await api('products/'+p.id+'/waiter-category','PUT',{category_id:select.value?Number(select.value):null});p.category_id=select.value?Number(select.value):null;renderWaiterOrganization();$('categoryStatus').textContent='✓ Categoria salva para '+p.name}
+   catch(e){$('categoryStatus').textContent=e.message;select.disabled=false}
+  };
+  row.append(name,select);list.append(row);
+ }
+}
+$('categoryForm').onsubmit=async e=>{
+ e.preventDefault();const name=$('categoryName').value.trim();if(!name)return;
+ const button=e.target.querySelector('button');button.disabled=true;
+ try{await api('waiter/categories','POST',{name});$('categoryName').value='';await loadWaiterOrganization()}
+ catch(e){$('categoryStatus').textContent=e.message}
+ finally{button.disabled=false}
+};
+$('categorySearch').oninput=renderWaiterOrganization;
