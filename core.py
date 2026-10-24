@@ -352,6 +352,33 @@ class Store:
             self.db.rollback()
             raise
 
+    def remove_checkout_item(self, tab_id, product_id=None, variant_id=None):
+        """Remove uma unidade da comanda aberta, inclusive se já foi enviada."""
+        self.db.execute("BEGIN IMMEDIATE")
+        try:
+            if not self.db.execute("SELECT 1 FROM tabs WHERE id=? AND closed IS NULL", (tab_id,)).fetchone():
+                raise ValueError("Comanda não encontrada ou já fechada.")
+            if variant_id is not None:
+                table, key, value = "tab_variant_items", "id", variant_id
+            else:
+                table, key, value = "tab_items", "product_id", product_id
+            row = self.db.execute(
+                f"SELECT quantity,sent_quantity FROM {table} WHERE tab_id=? AND {key}=?",
+                (tab_id,value)).fetchone()
+            if not row or row["quantity"] < 1:
+                raise ValueError("Item não encontrado na comanda.")
+            if row["quantity"] == 1:
+                self.db.execute(f"DELETE FROM {table} WHERE tab_id=? AND {key}=?", (tab_id,value))
+            else:
+                sent = min(row["sent_quantity"], row["quantity"]-1)
+                self.db.execute(
+                    f"UPDATE {table} SET quantity=quantity-1,sent_quantity=? WHERE tab_id=? AND {key}=?",
+                    (sent,tab_id,value))
+            self.db.commit()
+        except BaseException:
+            self.db.rollback()
+            raise
+
     def remove_variant_item(self, tab_id, variant_id):
         self.db.execute("BEGIN IMMEDIATE")
         try:
