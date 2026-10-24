@@ -49,6 +49,12 @@ class Store:
         if "cost" not in columns:
             with self.db:
                 self.db.execute("ALTER TABLE products ADD COLUMN cost INTEGER")
+        if "category_id" not in columns:
+            with self.db:
+                self.db.execute("ALTER TABLE products ADD COLUMN category_id INTEGER")
+        self.db.execute("""CREATE TABLE IF NOT EXISTS waiter_categories (
+            id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+            position INTEGER NOT NULL DEFAULT 0)""")
         self.db.executescript("""
             CREATE TABLE IF NOT EXISTS tabs (
                 id INTEGER PRIMARY KEY, customer TEXT NOT NULL,
@@ -84,6 +90,38 @@ class Store:
             CREATE TABLE IF NOT EXISTS tab_variant_items (id INTEGER PRIMARY KEY, tab_id INTEGER NOT NULL REFERENCES tabs(id), product_id INTEGER NOT NULL REFERENCES products(id), name TEXT NOT NULL, price INTEGER NOT NULL, choices TEXT NOT NULL, quantity INTEGER NOT NULL DEFAULT 1, sent_quantity INTEGER NOT NULL DEFAULT 0, UNIQUE(tab_id,product_id,choices));
         """)
 
+
+    def waiter_categories(self):
+        return [dict(row) for row in self.db.execute(
+            "SELECT id,name FROM waiter_categories ORDER BY position,id")]
+
+    def create_waiter_category(self, name):
+        name = name.strip()
+        if not name or len(name) > 60:
+            raise ValueError("Informe um nome de categoria com até 60 caracteres.")
+        try:
+            with self.db:
+                position = self.db.execute("SELECT COALESCE(MAX(position),0)+1 FROM waiter_categories").fetchone()[0]
+                return self.db.execute(
+                    "INSERT INTO waiter_categories(name,position) VALUES (?,?)",
+                    (name,position)).lastrowid
+        except sqlite3.IntegrityError:
+            raise ValueError("Essa categoria já existe.") from None
+
+    def delete_waiter_category(self, category_id):
+        with self.db:
+            self.db.execute("UPDATE products SET category_id=NULL WHERE category_id=?", (category_id,))
+            if not self.db.execute("DELETE FROM waiter_categories WHERE id=?", (category_id,)).rowcount:
+                raise ValueError("Categoria não encontrada.")
+
+    def set_waiter_category(self, product_id, category_id):
+        with self.db:
+            if category_id is not None and not self.db.execute(
+                "SELECT 1 FROM waiter_categories WHERE id=?", (category_id,)).fetchone():
+                raise ValueError("Categoria não encontrada.")
+            if not self.db.execute("UPDATE products SET category_id=? WHERE id=? AND active=1",
+                                   (category_id,product_id)).rowcount:
+                raise ValueError("Produto não encontrado.")
 
     def variant_groups(self, product_id):
         groups = self.db.execute("SELECT id,name FROM variant_groups WHERE product_id=? ORDER BY id",(product_id,)).fetchall()
