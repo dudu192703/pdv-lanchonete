@@ -294,7 +294,22 @@ async function closeTab(id,customer){
   const root=$('tabCheckout');root.replaceChildren();root.hidden=false;
   const heading=document.createElement('h3');heading.textContent='Conferir conta — '+customer;
   const summary=document.createElement('div');summary.className='tab-checkout-lines';
-  for(const item of items){const row=document.createElement('div');row.textContent=item.quantity+'× '+item.name+' — '+money(item.price*item.quantity);summary.append(row)}
+  for(const item of items){
+   const row=document.createElement('div');row.className='checkout-item-row';
+   const text=document.createElement('span');text.textContent=item.quantity+'× '+item.name+(item.choices?' ('+item.choices+')':'')+' — '+money(item.price*item.quantity);
+   const remove=document.createElement('button');remove.type='button';remove.className='danger checkout-remove-one';remove.textContent='✕';remove.title='Retirar apenas 1 unidade';remove.setAttribute('aria-label','Retirar uma unidade de '+item.name);
+   remove.onclick=async()=>{
+    if(checkoutTab!==id||remove.disabled)return;
+    remove.disabled=true;
+    try{
+     const path=item.variant_id!==null?'tabs/'+id+'/checkout-variants/'+item.variant_id:'tabs/'+id+'/checkout-items/'+item.product_id;
+     await api(path,'DELETE');
+     await loadTabs();
+     await closeTab(id,customer);
+    }catch(e){alert('Erro ao retirar produto: '+e.message);remove.disabled=false}
+   };
+   row.append(text,remove);summary.append(row);
+  }
   const sum=document.createElement('strong');sum.textContent='Total: '+money(total);
   const label=document.createElement('h4');label.textContent='Forma de pagamento (após conferir a conta)';
   const methods=document.createElement('div');methods.className='tab-payments';
