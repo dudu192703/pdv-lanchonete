@@ -46,6 +46,9 @@ class Store:
         if "stock" not in columns:
             with self.db:
                 self.db.execute("ALTER TABLE products ADD COLUMN stock INTEGER NOT NULL DEFAULT 0 CHECK(stock >= 0)")
+        if "cost" not in columns:
+            with self.db:
+                self.db.execute("ALTER TABLE products ADD COLUMN cost INTEGER")
         self.db.executescript("""
             CREATE TABLE IF NOT EXISTS tabs (
                 id INTEGER PRIMARY KEY, customer TEXT NOT NULL,
