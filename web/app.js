@@ -288,7 +288,7 @@ async function showTab(id,customer){
 async function closeTab(id,customer){
  try{
   const items=await api('tabs/'+id);
-  if(!items.length)return alert('Comanda sem produtos.');
+  if(!items.length){$('tabCheckout').hidden=true;checkoutTab=null;return alert('Comanda sem produtos.');}
   checkoutTab=id;
   const total=items.reduce((n,i)=>n+i.price*i.quantity,0);
   const root=$('tabCheckout');root.replaceChildren();root.hidden=false;
