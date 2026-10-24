@@ -537,6 +537,23 @@ def remove_from_tab(tab_id: int, product_id: int, s: Store = Depends(get_store))
         raise HTTPException(400, str(exc))
 
 
+@app.delete("/api/tabs/{tab_id}/checkout-items/{product_id}", dependencies=[Depends(auth)])
+def remove_checkout_product(tab_id: int, product_id: int, s: Store = Depends(get_store)):
+    try:
+        s.remove_checkout_item(tab_id, product_id=product_id)
+        return {"ok": True}
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+
+@app.delete("/api/tabs/{tab_id}/checkout-variants/{variant_id}", dependencies=[Depends(auth)])
+def remove_checkout_variant(tab_id: int, variant_id: int, s: Store = Depends(get_store)):
+    try:
+        s.remove_checkout_item(tab_id, variant_id=variant_id)
+        return {"ok": True}
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+
+
 def windows_printers():
     if os.name != "nt":
         return []
