@@ -226,6 +226,31 @@ def update_price(product_id: int, data: PriceInput, s: Store = Depends(get_store
     except ValueError as exc:
         raise HTTPException(400, str(exc))
 
+class ProductCostInput(BaseModel):
+    cost: str
+
+@app.get("/api/costs", dependencies=[Depends(auth)])
+def list_product_costs(s: Store = Depends(get_store)):
+    rows = s.db.execute("""
+        SELECT p.id,p.name,p.price,p.cost FROM products p
+        WHERE p.active=1 ORDER BY p.name COLLATE NOCASE
+    """).fetchall()
+    return [dict(row) for row in rows]
+
+@app.put("/api/products/{product_id}/cost", dependencies=[Depends(auth)])
+def update_product_cost(product_id: int, data: ProductCostInput, s: Store = Depends(get_store)):
+    try:
+        cost = cents(data.cost)
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(400, "Informe um custo válido.") from exc
+    if cost < 0:
+        raise HTTPException(400, "O custo não pode ser negativo.")
+    with s.db:
+        cursor = s.db.execute("UPDATE products SET cost=? WHERE id=? AND active=1", (cost,product_id))
+        if not cursor.rowcount:
+            raise HTTPException(404, "Produto não encontrado.")
+    return {"ok": True, "cost": cost}
+
 @app.put("/api/products/{product_id}/stock", dependencies=[Depends(auth)])
 def update_stock(product_id: int, data: StockInput, s: Store = Depends(get_store)):
     try:
