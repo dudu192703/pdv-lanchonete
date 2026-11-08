@@ -493,6 +493,7 @@ def sales_report_pdf(product_ids: list[int] | None = Query(None), date: str | No
 
 class TabInput(BaseModel):
     customer: str = Field(min_length=1, max_length=120)
+    request_id: str | None = Field(default=None, max_length=100)
 
 class TabItemInput(BaseModel):
     product_id: int
@@ -543,7 +544,7 @@ def list_tabs(s: Store = Depends(get_store)):
 @app.post("/api/tabs", dependencies=[Depends(waiter_auth)])
 def new_tab(data: TabInput, s: Store = Depends(get_store)):
     try:
-        return {"id": s.create_tab(data.customer)}
+        return {"id": s.create_tab(data.customer, data.request_id)}
     except ValueError as exc:
         raise HTTPException(400, str(exc))
 
