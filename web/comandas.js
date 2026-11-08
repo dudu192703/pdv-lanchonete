@@ -64,24 +64,19 @@ function renderProducts(){
   .map(g=>({...g,items:filtered.filter(p=>(p.category_id??null)===g.id)}))
   .filter(g=>g.items.length);
  if(!filtered.length){root.textContent='Nenhum produto encontrado.';return}
- if(!query&&selectedCategory===null){
-  const intro=document.createElement('p');intro.className='category-intro';intro.textContent='Escolha uma categoria para ver os produtos:';
-  const menu=document.createElement('div');menu.className='category-menu';
-  for(const group of groups){
-   const btn=document.createElement('button');btn.type='button';btn.className='category-tile';
-   const title=document.createElement('strong');title.textContent=group.name;
-   const count=document.createElement('span');count.textContent=group.items.length+' produto(s)';
-   const arrow=document.createElement('span');arrow.className='category-arrow';arrow.textContent='›';
-   btn.append(title,count,arrow);
-   btn.onclick=()=>{selectedCategory=group.id===null?'uncategorized':String(group.id);renderProducts()};
-   menu.append(btn);
-  }
-  root.append(intro,menu);return;
- }
  if(!query){
-  const back=document.createElement('button');back.type='button';back.className='category-back';back.textContent='← Voltar às categorias';
-  back.onclick=()=>{selectedCategory=null;renderProducts()};
-  root.append(back);
+  if(selectedCategory===null||!groups.some(g=>(g.id===null?'uncategorized':String(g.id))===selectedCategory)){
+   selectedCategory=groups[0]?.id===null?'uncategorized':String(groups[0]?.id);
+  }
+  const nav=document.createElement('div');nav.className='category-tabs';nav.setAttribute('role','group');nav.setAttribute('aria-label','Categorias de produtos');
+  for(const group of groups){
+   const key=group.id===null?'uncategorized':String(group.id);
+   const btn=document.createElement('button');btn.type='button';btn.className='category-tab'+(selectedCategory===key?' selected':'');
+   btn.textContent=group.name+' ('+group.items.length+')';btn.setAttribute('aria-pressed',String(selectedCategory===key));
+   btn.onclick=()=>{selectedCategory=key;renderProducts()};
+   nav.append(btn);
+  }
+  root.append(nav);
  }
  const shown=query?groups:groups.filter(g=>(g.id===null?'uncategorized':String(g.id))===selectedCategory);
  for(const group of shown){
