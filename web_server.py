@@ -1,5 +1,6 @@
 """Servidor web do PDV. Execute: python -m uvicorn web_server:app --host 127.0.0.1 --port 8000"""
 from pathlib import Path
+from urllib.parse import urlsplit
 import os
 import secrets
 import base64
@@ -62,8 +63,14 @@ def auth(request: Request):
         if request.headers.get("X-PDV-Request") != "1":
             raise HTTPException(403, "Requisição não autorizada.")
         origin = request.headers.get("origin")
-        if origin and origin.rstrip("/") != str(request.base_url).rstrip("/"):
-            raise HTTPException(403, "Origem não autorizada.")
+        if origin:
+            # Proxies HTTPS (HardCloud/Cloudflare) may forward requests as HTTP.
+            # Validate the browser Origin against the actual Host header, not
+            # request.base_url's internal scheme, without trusting forwarded hosts.
+            parsed = urlsplit(origin)
+            host = request.headers.get("host", "").lower()
+            if parsed.scheme not in ("http", "https") or not parsed.netloc or parsed.netloc.lower() != host or parsed.username or parsed.password or parsed.path not in ("", "/") or parsed.query or parsed.fragment:
+                raise HTTPException(403, "Origem não autorizada.")
     SESSIONS[sid] = time.time() + SESSION_SECONDS
 
 def get_store():
