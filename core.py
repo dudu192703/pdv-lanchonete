@@ -472,7 +472,11 @@ class Store:
                 text += str(item["quantity"]-item["sent_quantity"])+"x "+item["name"]+"\n"
                 for choice in item["choices"].split(" | "):
                     text += "  "+choice+"\n"
-            printer(text)
+            print_error = None
+            try:
+                printer(text)
+            except (OSError, RuntimeError) as exc:
+                print_error = str(exc)[:500]
             for item in items:
                 self.db.execute(
                     "UPDATE tab_items SET sent_quantity=quantity WHERE tab_id=? AND product_id=?",
@@ -481,8 +485,14 @@ class Store:
                 self.db.execute("UPDATE tab_variant_items SET sent_quantity=quantity WHERE id=?",(item["id"],))
             self.db.execute(
                 "INSERT INTO kitchen_prints(tab_id,content) VALUES (?,?)", (tab_id,text))
+            if print_error:
+                self.db.execute("""CREATE TABLE IF NOT EXISTS kitchen_print_failures
+                    (id INTEGER PRIMARY KEY, tab_id INTEGER NOT NULL,
+                     created TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, error TEXT NOT NULL)""")
+                self.db.execute("INSERT INTO kitchen_print_failures(tab_id,error) VALUES (?,?)", (tab_id, print_error))
             self.db.commit()
-            return {"items": sum(x["quantity"] - x["sent_quantity"] for x in list(items)+list(variant_items))}
+            return {"items": sum(x["quantity"] - x["sent_quantity"] for x in list(items)+list(variant_items)),
+                    "printed": print_error is None, "print_error": print_error}
         except BaseException:
             self.db.rollback()
             raise
