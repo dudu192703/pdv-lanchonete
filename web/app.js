@@ -599,3 +599,20 @@ $('transferFile').onchange=async e=>{
  }catch(err){status.textContent='Erro na importação: '+err.message}
  finally{e.target.disabled=false;e.target.value=''}
 };
+
+async function refreshKitchenAlerts(){
+ if(!loggedIn)return;
+ try{
+  const result=await api('settings/kitchen-alerts');
+  const alerts=result.alerts||[];
+  const box=$('kitchenAlert'),clear=$('kitchenAlertClear');
+  box.hidden=!alerts.length;clear.hidden=!alerts.length;
+  if(alerts.length)box.textContent='⚠ FALHA NA IMPRESSORA DA COZINHA — '+alerts.length+' aviso(s). Último pedido: comanda #'+alerts[0].tab_id+'. '+(alerts[0].error.includes('Selecione')?'Impressora não cadastrada.':alerts[0].error)+'. O pedido foi registrado, mas NÃO foi impresso.';
+ }catch(e){console.warn('Não foi possível consultar avisos da impressora',e)}
+}
+$('kitchenAlertClear').onclick=async()=>{
+ if(!confirm('Reconhecer e limpar os avisos da impressora? Os pedidos continuam registrados.'))return;
+ try{await api('settings/kitchen-alerts','DELETE');await refreshKitchenAlerts()}catch(e){alert(e.message)}
+};
+setInterval(refreshKitchenAlerts,15000);
+setTimeout(refreshKitchenAlerts,1000);
