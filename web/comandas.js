@@ -126,7 +126,7 @@ $('newForm').onsubmit=async e=>{
 $('send').onclick=async()=>{
  if(active===null||!pendingCount())return;
  const id=active;$('send').disabled=true;busy=true;
- try{const result=await api('tabs/'+id+'/kitchen','POST',{});message(result.items+' unidade(s) enviada(s) para a cozinha.');await renderTab();await loadTabs()}
+ try{const result=await api('tabs/'+id+'/kitchen','POST',{});message(result.items+' unidade(s) registrada(s) para a cozinha.'+(result.printed===false?' ATENÇÃO: impressora com falha; avise a cozinha!':' Impressão solicitada.'));await renderTab();await loadTabs()}
  catch(e){message('Falha no envio: '+e.message)}finally{busy=false;$('send').disabled=!pendingCount()}
 };
 window.addEventListener('beforeunload',e=>{if(pendingCount()>0){e.preventDefault();e.returnValue=''}});
