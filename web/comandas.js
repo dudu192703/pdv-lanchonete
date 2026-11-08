@@ -55,29 +55,52 @@ async function renderTab(){
  $('send').disabled=!pendingCount();
  renderProducts();
 }
+let selectedCategory=null;
 function renderProducts(){
  const root=$('products');root.replaceChildren();
  const query=$('search').value.trim().toLocaleLowerCase('pt-BR');
  const filtered=products.filter(p=>p.name.toLocaleLowerCase('pt-BR').includes(query));
- const groups=[...categories.map(c=>({id:c.id,name:c.name})),{id:null,name:'Sem categoria'}];
- for(const group of groups){
-  const matches=filtered.filter(p=>(p.category_id??null)===group.id);
-  if(!matches.length)continue;
+ const groups=[...categories.map(c=>({id:c.id,name:c.name})),{id:null,name:'Sem categoria'}]
+  .map(g=>({...g,items:filtered.filter(p=>(p.category_id??null)===g.id)}))
+  .filter(g=>g.items.length);
+ if(!filtered.length){root.textContent='Nenhum produto encontrado.';return}
+ if(!query&&selectedCategory===null){
+  const intro=document.createElement('p');intro.className='category-intro';intro.textContent='Escolha uma categoria para ver os produtos:';
+  const menu=document.createElement('div');menu.className='category-menu';
+  for(const group of groups){
+   const btn=document.createElement('button');btn.type='button';btn.className='category-tile';
+   const title=document.createElement('strong');title.textContent=group.name;
+   const count=document.createElement('span');count.textContent=group.items.length+' produto(s)';
+   const arrow=document.createElement('span');arrow.className='category-arrow';arrow.textContent='›';
+   btn.append(title,count,arrow);
+   btn.onclick=()=>{selectedCategory=group.id===null?'uncategorized':String(group.id);renderProducts()};
+   menu.append(btn);
+  }
+  root.append(intro,menu);return;
+ }
+ if(!query){
+  const back=document.createElement('button');back.type='button';back.className='category-back';back.textContent='← Voltar às categorias';
+  back.onclick=()=>{selectedCategory=null;renderProducts()};
+  root.append(back);
+ }
+ const shown=query?groups:groups.filter(g=>(g.id===null?'uncategorized':String(g.id))===selectedCategory);
+ for(const group of shown){
   const section=document.createElement('section');section.className='waiter-category';
-  const heading=document.createElement('h4');heading.textContent=group.name+' ('+matches.length+')';
+  const heading=document.createElement('h4');heading.textContent=group.name+' ('+group.items.length+')';
   const grid=document.createElement('div');grid.className='waiter-category-grid';
   section.append(heading,grid);
-  for(const p of matches){
-  const b=document.createElement('button');b.className='product';b.disabled=p.stock===0;
-  if(p.image){const img=document.createElement('img');img.alt=p.name;img.loading='lazy';img.src='/api/products/'+p.id+'/image';b.append(img)}
-  const name=document.createElement('strong');name.textContent=p.name;
-  const price=document.createElement('span');price.textContent=money(p.price)+(p.stock===0?' • Sem estoque':'');b.append(name,price);
-  b.onclick=async()=>{const id=active,scrollY=window.scrollY;b.disabled=true;try{const choices=await chooseVariants(p.id);if(choices===null)return;await api('tabs/'+id+'/items','POST',{product_id:p.id,choices});await renderTab();await loadTabs();window.scrollTo({top:scrollY,behavior:'instant'})}catch(e){message(e.message)}finally{b.disabled=false}};
-  grid.append(b);
+  for(const p of group.items){
+   const btn=document.createElement('button');btn.type='button';btn.className='product';btn.disabled=p.stock===0;
+   if(p.image){const img=document.createElement('img');img.alt=p.name;img.loading='lazy';img.src='/api/products/'+p.id+'/image';btn.append(img)}
+   const name=document.createElement('strong');name.textContent=p.name;
+   const price=document.createElement('span');price.textContent=money(p.price)+(p.stock===0?' • Sem estoque':'');
+   btn.append(name,price);
+   btn.onclick=async()=>{const id=active,scrollY=window.scrollY;btn.disabled=true;try{const choices=await chooseVariants(p.id);if(choices===null)return;await api('tabs/'+id+'/items','POST',{product_id:p.id,choices});await renderTab();await loadTabs();window.scrollTo({top:scrollY,behavior:'instant'})}catch(e){message(e.message)}finally{btn.disabled=false}};
+   grid.append(btn);
   }
   root.append(section);
  }
- if(!filtered.length)root.textContent='Nenhum produto encontrado.';
+ if(!shown.length){selectedCategory=null;renderProducts()}
 }
 $('search').oninput=renderProducts;
 $('newForm').onsubmit=async e=>{
