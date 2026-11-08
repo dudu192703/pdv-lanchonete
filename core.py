@@ -350,12 +350,28 @@ class Store:
             "(SELECT COALESCE(SUM(price*quantity),0) FROM tab_variant_items WHERE tab_id=t.id) AS total "
             "FROM tabs t WHERE t.closed IS NULL ORDER BY t.id DESC")]
 
-    def create_tab(self, customer):
+    def create_tab(self, customer, request_id=None):
         customer = customer.strip()
         if not customer or len(customer) > 120:
             raise ValueError("Informe um nome de cliente com até 120 caracteres.")
-        with self.db:
-            return self.db.execute("INSERT INTO tabs(customer) VALUES (?)", (customer,)).lastrowid
+        if not request_id:
+            with self.db:
+                return self.db.execute("INSERT INTO tabs(customer) VALUES (?)", (customer,)).lastrowid
+        # A chave de solicitação evita comandas duplicadas por cliques/reenvios.
+        self.db.execute("BEGIN IMMEDIATE")
+        try:
+            self.db.execute("CREATE TABLE IF NOT EXISTS tab_create_requests (request_id TEXT PRIMARY KEY, tab_id INTEGER NOT NULL)")
+            existing = self.db.execute("SELECT tab_id FROM tab_create_requests WHERE request_id=?", (request_id,)).fetchone()
+            if existing:
+                self.db.commit()
+                return existing["tab_id"]
+            tab_id = self.db.execute("INSERT INTO tabs(customer) VALUES (?)", (customer,)).lastrowid
+            self.db.execute("INSERT INTO tab_create_requests(request_id,tab_id) VALUES (?,?)", (request_id,tab_id))
+            self.db.commit()
+            return tab_id
+        except BaseException:
+            self.db.rollback()
+            raise
 
     def tab_items(self, tab_id):
         if not self.db.execute("SELECT 1 FROM tabs WHERE id=? AND closed IS NULL", (tab_id,)).fetchone():
