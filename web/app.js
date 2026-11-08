@@ -571,3 +571,30 @@ $('categoryForm').onsubmit=async e=>{
  finally{button.disabled=false}
 };
 $('categorySearch').oninput=renderWaiterOrganization;
+
+\n// Migração completa do PDV entre computador e hospedagem.
+$('transferDownload').onclick=async()=>{
+ const btn=$('transferDownload'),status=$('transferStatus');btn.disabled=true;status.textContent='Preparando backup completo...';
+ try{
+  const response=await fetch('/api/settings/transfer/export',{credentials:'same-origin'});
+  if(!response.ok)throw Error('Falha ao baixar backup (HTTP '+response.status+').');
+  const blob=await response.blob(),url=URL.createObjectURL(blob);
+  const link=document.createElement('a');link.href=url;link.download='backup-pdv-'+new Date().toISOString().slice(0,10)+'.zip';
+  document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);
+  status.textContent='Backup baixado. Guarde o ZIP em local seguro.';
+ }catch(e){status.textContent=e.message}finally{btn.disabled=false}
+};
+$('transferFile').onchange=async e=>{
+ const file=e.target.files?.[0],status=$('transferStatus');if(!file)return;
+ if(!file.name.toLowerCase().endsWith('.zip')){status.textContent='Selecione um arquivo ZIP do PDV.';e.target.value='';return}
+ if(!confirm('ATENÇÃO: os dados atuais deste servidor serão substituídos pelo backup selecionado. Faça isso com o caixa e os garçons sem usar o sistema. Deseja continuar?')){e.target.value='';return}
+ e.target.disabled=true;status.textContent='Importando dados e criando cópia de segurança do servidor...';
+ try{
+  const response=await fetch('/api/settings/transfer/import',{method:'POST',credentials:'same-origin',headers:{'X-PDV-Request':'1','Content-Type':'application/zip'},body:file});
+  const result=await response.json();
+  if(!response.ok)throw Error(result.detail||'Falha na importação');
+  status.textContent='Importação concluída! Reinicie o servidor antes de usar o PDV. Backup anterior: '+result.safety_backup;
+  alert('Dados importados! Reinicie o servidor e atualize a página antes de voltar a usar o PDV.');
+ }catch(err){status.textContent='Erro na importação: '+err.message}
+ finally{e.target.disabled=false;e.target.value=''}
+};
