@@ -39,3 +39,9 @@ body:has(.choice-overlay){overflow:hidden}
 .waiter-category-grid .product span{margin-top:auto;font-size:16px}
 @media(min-width:680px){.category-menu{grid-template-columns:repeat(3,minmax(0,1fr))}.waiter-category-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
 @media(max-width:350px){.category-menu{gap:8px}.category-tile{padding:13px 27px 13px 12px}.category-tile strong{font-size:16px}.waiter-category-grid{gap:8px}}
+
+/* Abas de categorias sempre visíveis, troca com um toque */
+.category-tabs{display:flex;gap:9px;overflow-x:auto;overscroll-behavior-x:contain;scroll-snap-type:x proximity;padding:6px 1px 12px;margin-top:10px;scrollbar-width:thin;-webkit-overflow-scrolling:touch}
+.category-tab{flex:0 0 auto;min-width:110px;max-width:210px;min-height:50px;padding:12px 16px;white-space:normal;text-align:center;line-height:1.2;scroll-snap-align:start;border:1px solid #4b6980;background:#294459;color:#e5edf3;border-radius:12px}
+.category-tab.selected{background:#edaa2c;color:#17212b;border-color:#ffd078;box-shadow:0 2px 8px #0003}
+.category-tab:focus-visible{outline:3px solid #ffcc66;outline-offset:2px}
