@@ -10,6 +10,12 @@ import time
 import sys
 import json
 import hashlib
+import sqlite3
+import zipfile
+import shutil
+import tempfile
+from datetime import datetime, timezone
+from threading import Lock
 from collections import defaultdict
 from PIL import Image, UnidentifiedImageError
 from fastapi import FastAPI, HTTPException, Depends, Request
@@ -800,3 +806,101 @@ def finish_tab(tab_id: int, data: TabCloseInput, s: Store = Depends(get_store)):
         return {"id": sale_id, "total": total}
     except ValueError as exc:
         raise HTTPException(400, str(exc))
+
+
+# Exportação e importação para migração entre instalações do PDV.
+TRANSFER_LOCK = Lock()
+TRANSFER_LIMIT = 150 * 1024 * 1024
+
+@app.get("/api/settings/transfer/export", dependencies=[Depends(auth)])
+def export_transfer():
+    with TRANSFER_LOCK:
+        output = io.BytesIO()
+        with tempfile.TemporaryDirectory() as temp:
+            snapshot = Path(temp) / "pdv.sqlite3"
+            source = sqlite3.connect(str(DATA / "pdv.sqlite3"), timeout=30)
+            try:
+                target = sqlite3.connect(str(snapshot))
+                try:
+                    source.backup(target)
+                finally:
+                    target.close()
+            finally:
+                source.close()
+            with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED, compresslevel=5) as archive:
+                archive.write(snapshot, "pdv.sqlite3")
+                for photo in IMAGES.iterdir():
+                    if photo.is_file() and not photo.is_symlink():
+                        archive.write(photo, "product_images/" + photo.name)
+                logo = DATA / "establishment_logo.png"
+                if logo.is_file():
+                    archive.write(logo, "establishment_logo.png")
+                archive.writestr("backup_info.json", json.dumps({"format": "pdv-transfer-v1", "created_at": datetime.now(timezone.utc).isoformat()}))
+        filename = "backup-pdv-" + datetime.now().strftime("%Y%m%d-%H%M%S") + ".zip"
+        return Response(content=output.getvalue(), media_type="application/zip",
+                        headers={"Content-Disposition": 'attachment; filename="' + filename + '"',
+                                 "Cache-Control": "no-store"})
+
+@app.post("/api/settings/transfer/import", dependencies=[Depends(auth)])
+async def import_transfer(request: Request):
+    if request.headers.get("content-length") and int(request.headers["content-length"]) > TRANSFER_LIMIT:
+        raise HTTPException(413, "Arquivo muito grande (limite 150 MB).")
+    payload = await request.body()
+    if len(payload) > TRANSFER_LIMIT:
+        raise HTTPException(413, "Arquivo muito grande (limite 150 MB).")
+    if not TRANSFER_LOCK.acquire(blocking=False):
+        raise HTTPException(409, "Já existe uma transferência em andamento.")
+    try:
+        with tempfile.TemporaryDirectory(dir=DATA) as temp:
+            staging = Path(temp)
+            try:
+                with zipfile.ZipFile(io.BytesIO(payload)) as archive:
+                    names = archive.namelist()
+                    allowed = lambda n: n in ("pdv.sqlite3", "backup_info.json", "establishment_logo.png") or (n.startswith("product_images/") and len(n.split("/")) == 2 and n.split("/")[1] and not n.endswith("/"))
+                    if "pdv.sqlite3" not in names or len(names) != len(set(names)) or any(not allowed(n) for n in names):
+                        raise ValueError("ZIP inválido: envie um backup gerado pelo próprio PDV.")
+                    if sum(info.file_size for info in archive.infolist()) > TRANSFER_LIMIT:
+                        raise ValueError("Conteúdo do ZIP excede 150 MB.")
+                    for info in archive.infolist():
+                        target = staging / info.filename
+                        target.parent.mkdir(parents=True, exist_ok=True)
+                        with archive.open(info) as source, target.open("wb") as dest:
+                            shutil.copyfileobj(source, dest)
+            except (zipfile.BadZipFile, OSError, ValueError) as exc:
+                raise HTTPException(400, "Não foi possível ler o backup: " + str(exc))
+            dbfile = staging / "pdv.sqlite3"
+            try:
+                check = sqlite3.connect(str(dbfile))
+                try:
+                    integrity = check.execute("PRAGMA integrity_check").fetchone()[0]
+                    tables = {row[0] for row in check.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+                    if integrity != "ok" or not {"products", "tabs", "tab_items", "sales", "settings"}.issubset(tables):
+                        raise ValueError("Banco de dados inválido ou incompatível.")
+                finally:
+                    check.close()
+            except (sqlite3.DatabaseError, ValueError) as exc:
+                raise HTTPException(400, str(exc))
+            # Preserva automaticamente o estado atual antes de substituir.
+            safety = DATA / ("pdv-antes-importacao-" + datetime.now().strftime("%Y%m%d-%H%M%S") + ".sqlite3")
+            old = sqlite3.connect(str(DATA / "pdv.sqlite3"), timeout=30)
+            try:
+                saved = sqlite3.connect(str(safety))
+                try:
+                    old.backup(saved)
+                finally:
+                    saved.close()
+            finally:
+                old.close()
+            # Evita alterar a senha do servidor: ela é configurada por variável de ambiente.
+            os.replace(dbfile, DATA / "pdv.sqlite3")
+            IMAGES.mkdir(exist_ok=True)
+            for photo in (staging / "product_images").glob("*") if (staging / "product_images").exists() else ():
+                if photo.is_file():
+                    os.replace(photo, IMAGES / photo.name)
+            logo = staging / "establishment_logo.png"
+            if logo.exists():
+                os.replace(logo, DATA / "establishment_logo.png")
+            return {"ok": True, "message": "Dados importados. Reinicie o servidor antes de voltar a usar o PDV.", "safety_backup": safety.name}
+    finally:
+        TRANSFER_LOCK.release()
+
