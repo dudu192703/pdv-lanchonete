@@ -762,6 +762,23 @@ def send_tab_to_kitchen(tab_id: int, s: Store = Depends(get_store)):
     except (OSError, RuntimeError) as exc:
         raise HTTPException(503, "Impressão não concluída: " + str(exc))
 
+@app.get("/api/settings/kitchen-alerts", dependencies=[Depends(auth)])
+def kitchen_alerts(s: Store = Depends(get_store)):
+    s.db.execute("""CREATE TABLE IF NOT EXISTS kitchen_print_failures
+        (id INTEGER PRIMARY KEY, tab_id INTEGER NOT NULL,
+         created TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, error TEXT NOT NULL)""")
+    rows = s.db.execute("SELECT id,tab_id,created,error FROM kitchen_print_failures ORDER BY id DESC LIMIT 20").fetchall()
+    return {"alerts": [dict(row) for row in rows]}
+
+@app.delete("/api/settings/kitchen-alerts", dependencies=[Depends(auth)])
+def clear_kitchen_alerts(s: Store = Depends(get_store)):
+    s.db.execute("""CREATE TABLE IF NOT EXISTS kitchen_print_failures
+        (id INTEGER PRIMARY KEY, tab_id INTEGER NOT NULL,
+         created TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, error TEXT NOT NULL)""")
+    with s.db:
+        s.db.execute("DELETE FROM kitchen_print_failures")
+    return {"ok": True}
+
 def format_customer_receipt(tab_id: int, s: Store):
     from datetime import datetime
     tab = s.db.execute(
