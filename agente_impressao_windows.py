@@ -31,7 +31,7 @@ def print_ticket(content):
         try:
             win32print.StartPagePrinter(handle)
             try:
-                payload = b"\\x1b@" + content.encode("cp850", errors="replace") + b"\\n\\n\\n"
+                payload = bytes([27, 64]) + content.encode("cp850", errors="replace") + bytes([10, 10, 10])
                 written = win32print.WritePrinter(handle, payload)
                 if written != len(payload):
                     raise RuntimeError("Impressão incompleta.")
