@@ -55,6 +55,15 @@ class Store:
         self.db.execute("""CREATE TABLE IF NOT EXISTS waiter_categories (
             id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE COLLATE NOCASE,
             position INTEGER NOT NULL DEFAULT 0)""")
+        print_columns = {row["name"] for row in self.db.execute("PRAGMA table_info(kitchen_prints)")}
+        if "printed_at" not in print_columns:
+            # Existing historical tickets must not be printed again on migration.
+            with self.db:
+                self.db.execute("ALTER TABLE kitchen_prints ADD COLUMN printed_at TEXT DEFAULT 'historical'")
+        if "print_error" not in print_columns:
+            with self.db:
+                self.db.execute("ALTER TABLE kitchen_prints ADD COLUMN print_error TEXT")
+
         self.db.executescript("""
             CREATE TABLE IF NOT EXISTS tabs (
                 id INTEGER PRIMARY KEY, customer TEXT NOT NULL,
@@ -484,7 +493,7 @@ class Store:
             for item in variant_items:
                 self.db.execute("UPDATE tab_variant_items SET sent_quantity=quantity WHERE id=?",(item["id"],))
             self.db.execute(
-                "INSERT INTO kitchen_prints(tab_id,content) VALUES (?,?)", (tab_id,text))
+                "INSERT INTO kitchen_prints(tab_id,content,printed_at) VALUES (?,?,?)", (tab_id,text, None if print_error else datetime.now().isoformat()))
             if print_error:
                 self.db.execute("""CREATE TABLE IF NOT EXISTS kitchen_print_failures
                     (id INTEGER PRIMARY KEY, tab_id INTEGER NOT NULL,
