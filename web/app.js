@@ -572,7 +572,8 @@ $('categoryForm').onsubmit=async e=>{
 };
 $('categorySearch').oninput=renderWaiterOrganization;
 
-\n// Migração completa do PDV entre computador e hospedagem.
+
+// Migração completa do PDV entre computador e hospedagem.
 $('transferDownload').onclick=async()=>{
  const btn=$('transferDownload'),status=$('transferStatus');btn.disabled=true;status.textContent='Preparando backup completo...';
  try{
