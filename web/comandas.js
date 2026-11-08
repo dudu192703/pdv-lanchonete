@@ -1,6 +1,14 @@
 const $=id=>document.getElementById(id);
 const money=n=>(n/100).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
 let products=[],tabs=[],active=null,items=[],busy=false,categories=[];
+const variantCache=new Map();
+async function cachedVariants(id){
+ const cached=variantCache.get(id);
+ if(cached&&Date.now()-cached.at<60000)return cached.data;
+ const data=await api('products/'+id+'/variants');
+ variantCache.set(id,{at:Date.now(),data});
+ return data;
+}
 async function api(path,method='GET',body){
  const r=await fetch('/api/'+path,{method,credentials:'same-origin',headers:{'X-PDV-Request':'1','Content-Type':'application/json'},body:body===undefined?undefined:JSON.stringify(body)});
  const j=await r.json().catch(()=>({}));if(!r.ok)throw Error(j.detail||'Erro '+r.status);return j;
@@ -90,7 +98,7 @@ function renderProducts(){
    const name=document.createElement('strong');name.textContent=p.name;
    const price=document.createElement('span');price.textContent=money(p.price)+(p.stock===0?' • Sem estoque':'');
    btn.append(name,price);
-   btn.onclick=async()=>{const id=active,scrollY=window.scrollY;btn.disabled=true;try{const choices=await chooseVariants(p.id);if(choices===null)return;await api('tabs/'+id+'/items','POST',{product_id:p.id,choices});await renderTab();await loadTabs();window.scrollTo({top:scrollY,behavior:'instant'})}catch(e){message(e.message)}finally{btn.disabled=false}};
+   btn.onclick=async()=>{const id=active,scrollY=window.scrollY;btn.disabled=true;try{const choices=await chooseVariants(p.id);if(choices===null)return;await api('tabs/'+id+'/items','POST',{product_id:p.id,choices});await renderTab();loadTabs().catch(e=>message(e.message));window.scrollTo({top:scrollY,behavior:'instant'})}catch(e){message(e.message)}finally{btn.disabled=false}};
    grid.append(btn);
   }
   root.append(section);
@@ -112,7 +120,7 @@ $('send').onclick=async()=>{
 window.addEventListener('beforeunload',e=>{if(pendingCount()>0){e.preventDefault();e.returnValue=''}});
 initialize();
 async function chooseVariants(productId){
- const groups=await api('products/'+productId+'/variants');
+ const groups=await cachedVariants(productId);
  if(!groups.length)return {};
  for(const group of groups){
   if(!group.options.length)throw Error('A variedade "'+group.name+'" não possui opções cadastradas.');
