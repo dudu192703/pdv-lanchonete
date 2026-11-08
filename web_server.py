@@ -767,6 +767,37 @@ def send_tab_to_kitchen(tab_id: int, s: Store = Depends(get_store)):
     except (OSError, RuntimeError) as exc:
         raise HTTPException(503, "Impressão não concluída: " + str(exc))
 
+# Agente local de impressão: token exclusivo configurado no servidor.
+PRINT_AGENT_TOKEN = os.getenv("PDV_PRINT_AGENT_TOKEN", "")
+
+def print_agent_auth(request: Request):
+    supplied = request.headers.get("X-PDV-Print-Agent", "")
+    if not PRINT_AGENT_TOKEN or not supplied or not secrets.compare_digest(supplied, PRINT_AGENT_TOKEN):
+        raise HTTPException(401, "Agente de impressão não autorizado.")
+
+class PrintAgentResult(BaseModel):
+    ok: bool
+    error: str = ""
+
+@app.get("/api/print-agent/next", dependencies=[Depends(print_agent_auth)])
+def print_agent_next(s: Store = Depends(get_store)):
+    row = s.db.execute(
+        "SELECT id,tab_id,content FROM kitchen_prints WHERE printed_at IS NULL ORDER BY id LIMIT 1"
+    ).fetchone()
+    return {"job": dict(row) if row else None}
+
+@app.post("/api/print-agent/{job_id}/result", dependencies=[Depends(print_agent_auth)])
+def print_agent_result(job_id: int, data: PrintAgentResult, s: Store = Depends(get_store)):
+    row = s.db.execute("SELECT id,tab_id FROM kitchen_prints WHERE id=? AND printed_at IS NULL", (job_id,)).fetchone()
+    if not row:
+        raise HTTPException(404, "Pedido já processado ou inexistente.")
+    with s.db:
+        if data.ok:
+            s.db.execute("UPDATE kitchen_prints SET printed_at=CURRENT_TIMESTAMP,print_error=NULL WHERE id=?", (job_id,))
+        else:
+            s.db.execute("UPDATE kitchen_prints SET print_error=? WHERE id=?", (data.error[:500] or "Erro desconhecido",job_id))
+    return {"ok": True}
+
 @app.get("/api/settings/kitchen-alerts", dependencies=[Depends(auth)])
 def kitchen_alerts(s: Store = Depends(get_store)):
     s.db.execute("""CREATE TABLE IF NOT EXISTS kitchen_print_failures
