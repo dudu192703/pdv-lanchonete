@@ -106,10 +106,22 @@ function renderProducts(){
  if(!shown.length){selectedCategory=null;renderProducts()}
 }
 $('search').oninput=renderProducts;
+let creatingTab=false;
 $('newForm').onsubmit=async e=>{
- e.preventDefault();if(switchWarning())return;
+ e.preventDefault();
+ if(creatingTab||switchWarning())return;
  const customer=$('customer').value.trim();if(!customer)return;
- try{const result=await api('tabs','POST',{customer});$('customer').value='';active=null;items=[];await loadTabs();await selectTab(result.id)}catch(err){message(err.message)}
+ const button=$('newForm').querySelector('button[type="submit"],button');
+ creatingTab=true;button.disabled=true;button.textContent='Criando...';message('Criando comanda, aguarde...');
+ const requestId=(globalThis.crypto&&crypto.randomUUID)?crypto.randomUUID():String(Date.now())+'-'+Math.random().toString(36).slice(2);
+ try{
+  const result=await api('tabs','POST',{customer,request_id:requestId});
+  $('customer').value='';active=result.id;items=[];
+  $('detail').hidden=false;$('heading').textContent='Comanda de '+customer;
+  await Promise.all([loadTabs(),renderTab()]);
+  message('Comanda criada com sucesso.');
+ }catch(err){message('Não foi possível criar a comanda: '+err.message)}
+ finally{creatingTab=false;button.disabled=false;button.textContent='Criar comanda'}
 };
 $('send').onclick=async()=>{
  if(active===null||!pendingCount())return;
