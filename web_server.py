@@ -95,8 +95,13 @@ def waiter_auth(request: Request):
         if request.headers.get("X-PDV-Request") != "1":
             raise HTTPException(403, "Requisição não autorizada.")
         origin = request.headers.get("origin")
-        if origin and origin.rstrip("/") != str(request.base_url).rstrip("/"):
-            raise HTTPException(403, "Origem não autorizada.")
+        if origin:
+            # A hospedagem pode receber HTTPS externamente e HTTP internamente.
+            # A origem deve corresponder exatamente ao Host solicitado.
+            parsed = urlsplit(origin)
+            host = request.headers.get("host", "").lower()
+            if parsed.scheme not in ("http", "https") or not parsed.netloc or parsed.netloc.lower() != host or parsed.username or parsed.password or parsed.path not in ("", "/") or parsed.query or parsed.fragment:
+                raise HTTPException(403, "Origem não autorizada.")
     WAITER_SESSIONS[sid] = time.time() + SESSION_SECONDS
 
 
